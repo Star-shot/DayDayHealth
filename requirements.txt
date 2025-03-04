@@ -1,0 +1,9 @@
+numpy==1.26.4          
+pandas==2.2.2         
+scikit-learn==1.4.2  
+matplotlib==3.8.3     
+seaborn==0.13.2     
+torch==2.3.0         
+# torch==2.3.0+cu121  # GPU版本 (需CUDA 12.1)
+gradio==4.25.0        
+streamlit==1.30.0    
