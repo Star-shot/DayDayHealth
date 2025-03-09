@@ -7,3 +7,4 @@ torch==2.3.0
 # torch==2.3.0+cu121  # GPU版本 (需CUDA 12.1)
 gradio==4.25.0        
 streamlit==1.30.0    
+openai==0.28.1

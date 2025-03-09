@@ -12,52 +12,54 @@ from sklearn.metrics import (
 
 class SVM:
     """
-    SVM分类器，支持评估指标保存和可视化
+    SVM classifier with evaluation metrics saving and visualization
     
-    参数:
-    kernel (str): 核函数类型，默认为'linear'
-    C (float): 正则化参数，默认为1.0
-    gamma (str/float): 核函数系数，默认为'scale'
+    Params:
+    kernel (str): kernel type, default is 'linear', options: 'linear', 'poly', 'rbf', 'sigmoid'
+    C (float): regularization parameter, default is 1.0
+    gamma (str/float): kernel coefficient, default is 'scale',options: 'scale', 'auto'
+    out_dir (str): output directory, default is 'output'
+    
     """
     def __init__(self, kernel='linear', C=1.0, gamma='scale', out_dir='output'):
         self.kernel = kernel
         self.C = C
         self.gamma = gamma
         self.out_dir = out_dir
+        self.metrics = None
         self.model = svm.SVC(
-            kernel=self.kernel,
-            C=self.C,
-            gamma=self.gamma,
-            probability=True,  # 启用概率预测
-            random_state=42
-        )
+                kernel=self.kernel,
+                C=self.C,
+                gamma=self.gamma,
+                probability=True,  # activate probability estimates
+                random_state=42
+            )
         self._create_output_dir()
 
     def _create_output_dir(self):
-        """创建输出目录"""
+        # make output directory if not exists
         os.makedirs(f'{self.out_dir}', exist_ok=True)
 
     def train(self, X, y):
-        """训练模型"""
+        # train model
         self.model.fit(X, y)
-        self.classes_ = self.model.classes_  # 记录类别信息
+        self.classes_ = self.model.classes_  # save classes
 
     def predict(self, X):
-        """执行预测"""
+        # make prediction
         return self.model.predict(X)
 
     def predict_proba(self, X):
-        """获取预测概率"""
+        # get probability estimates
         return self.model.predict_proba(X)
 
     def evaluate(self, X, y):
-        """完整评估流程"""
-        # 基础预测
+        
         y_pred = self.predict(X)
         y_proba = self.predict_proba(X)
         
-        # 计算指标
-        metrics = {
+        # calculate metrics
+        self.metrics = {
             'accuracy': accuracy_score(y, y_pred),
             'precision_macro': precision_score(y, y_pred, average='macro', zero_division=0),
             'recall_macro': recall_score(y, y_pred, average='macro', zero_division=0),
@@ -66,7 +68,7 @@ class SVM:
             'classification_report': classification_report(y, y_pred, output_dict=True, zero_division=0)
         }
 
-        # 计算AUC（多类别处理）
+        # calculate AUC
         try:
             if len(self.classes_) == 2:
                 metrics['auc'] = roc_auc_score(y, y_proba[:, 1])
@@ -74,29 +76,27 @@ class SVM:
                 metrics['auc_ovr'] = roc_auc_score(y, y_proba, multi_class='ovr')
                 metrics['auc_ovo'] = roc_auc_score(y, y_proba, multi_class='ovo')
         except Exception as e:
-            print(f"AUC计算异常: {str(e)}")
+            print(f"Error calculating AUC: {str(e)}")
             metrics['auc'] = None
 
-        # 保存指标
-        self._save_metrics(metrics)
+        # self._save_metrics(metrics)
         
-        # 生成可视化
-        self._plot_roc(y, y_proba)
-        self._plot_pr(y, y_proba)
-        self._plot_confusion_matrix(metrics['confusion_matrix'])
+        # visualization
+        self.plot_roc(y, y_proba)
+        self.plot_pr(y, y_proba)
+        self.plot_confusion_matrix(metrics['confusion_matrix'])
         
         return metrics
 
     def _save_metrics(self, metrics):
-        """保存评估指标到JSON文件"""
+        # save metrics to json file
         with open(f'{self.out_dir}/metrics.json', 'w') as f:
             json.dump(metrics, f, indent=2)
 
-    def _plot_roc(self, y_true, y_proba):
-        """绘制ROC曲线"""
+    def plot_roc(self, y_true, y_proba):
+        # plot ROC curve
         plt.figure(figsize=(10, 8))
         
-        # 多类别处理
         for i, class_id in enumerate(self.classes_):
             fpr, tpr, _ = roc_curve(y_true, y_proba[:, i], pos_label=class_id)
             auc = roc_auc_score(
@@ -112,14 +112,13 @@ class SVM:
         plt.ylabel('True Positive Rate')
         plt.title('ROC Curves')
         plt.legend(loc="lower right")
-        plt.savefig(f'{self.out_dir}/roc_curves.png')
+        # plt.savefig(f'{self.out_dir}/roc_curves.png')
         plt.close()
 
-    def _plot_pr(self, y_true, y_proba):
-        """绘制PR曲线"""
+    def plot_pr(self, y_true, y_proba):
+        # plot PR curve
         plt.figure(figsize=(10, 8))
         
-        # 多类别处理
         for i, class_id in enumerate(self.classes_):
             precision, recall, _ = precision_recall_curve(
                 (y_true == class_id).astype(int),
@@ -137,11 +136,12 @@ class SVM:
         plt.xlim([0.0, 1.0])
         plt.title('Precision-Recall Curves')
         plt.legend(loc="upper right")
-        plt.savefig(f'{self.out_dir}/pr_curves.png')
+        # plt.savefig(f'{self.out_dir}/pr_curves.png')
         plt.close()
 
-    def _plot_confusion_matrix(self, matrix):
-        """绘制混淆矩阵热力图"""
+    def plot_confusion_matrix(self, matrix):
+        # plot confusion matrix
+        
         plt.figure(figsize=(10, 8))
         sns.heatmap(
             matrix, 
@@ -154,7 +154,7 @@ class SVM:
         plt.xlabel('Predicted Label')
         plt.ylabel('True Label')
         plt.title('Confusion Matrix')
-        plt.savefig(f'{self.out_dir}/confusion_matrix.png')
+        # plt.savefig(f'{self.out_dir}/confusion_matrix.png')
         plt.close()
 
 # TEST
@@ -162,19 +162,18 @@ if __name__ == "__main__":
     from sklearn.datasets import load_iris
     from sklearn.model_selection import train_test_split
     
-    # 加载数据
+    # load data
     data = load_iris()
     X, y = data.data, data.target
     
-    # 划分数据集
+    # split data
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42
     )
     
-    # 训练模型
+    # train & evaluate
     svm_model = SVM(kernel='rbf', C=1.0, gamma='scale')
     svm_model.train(X_train, y_train)
-    
-    # 评估模型
+
     metrics = svm_model.evaluate(X_test, y_test)
-    print("评估指标已保存至output目录")
+    print(f'Evaluation metrics saved to{svm_model.out_dir}/metrics.json')

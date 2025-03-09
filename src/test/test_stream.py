@@ -1,45 +1,20 @@
-import pandas as pd
-import yaml
-from pathlib import Path
+import gradio as gr
 from openai import OpenAI
 from typing import Generator
 
-def load_data(filepath):
-    """
-    此函数用于加载数据集，支持 xlsx 和 csv 文件，会删除有缺失值的数据，默认最后一列是标签。
+kimi_url = "https://api.moonshot.cn/v1"
+kimi_key = "sk-Llg1MqZy0oucHMnNwQYgfutkzAXn6S4fKrL212GE4vs1FF81"
+kimi_id = 'moonshot-v1-128k'
 
-    参数:
-    filepath (str): 数据集文件的路径，支持 xlsx 和 csv 格式。
+deepseek_url = "https://api.deepseek.com/v1"
+deepseek_key = "sk-88614777ad0a452fb0f2e0e4dff29716"
+deepseek_id = 'deepseek-reasoner'
 
-    返回:
-    tuple: 包含特征矩阵 X 和标签向量 y 的元组。
-    """
-    if filepath.endswith('.xlsx'):
-        df = pd.read_excel(filepath)
-    elif filepath.endswith('.csv'):
-        df = pd.read_csv(filepath)
-    else:
-        raise ValueError("不支持的文件格式，仅支持 .xlsx 和 .csv 文件。")
-    
-    # 删除包含缺失值的行
-    df = df.dropna()
-    
-    # 提取特征和标签
-    X = df.iloc[:, :-1].values
-    y = df.iloc[:, -1].values
-    
-    return X, y
-
-def load_openai_config():
-    """加载LLM配置"""
-    config_path = Path("../config.yaml") 
-    if not config_path.exists():
-        raise FileNotFoundError("找不到配置文件 config.yaml")
-    
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-        return config['llm_config']['OpenAI']['api_key'], config['llm_config']['OpenAI']['base_url']
-
+# 新版API初始化方式
+client = OpenAI(
+    api_key=kimi_key,
+    base_url=kimi_url
+    )
 
 def validate_messages(messages: list) -> list:
     """确保消息角色严格交替"""
@@ -58,23 +33,13 @@ def validate_messages(messages: list) -> list:
 def stream_response(messages: list, model_id: str) -> Generator[str, None, None]:
     """流式响应生成器"""
     full_response = ""
-    api_key, base_url = load_openai_config()
-    client = OpenAI(
-        api_key=api_key,
-        base_url=base_url
-    )
-    mappings = {
-       '医疗LLM': 'moonshot-v1-128k', # 暂时占位
-       '金融LLM': 'moonshot-v1-32k',
-       '教育LLM': 'moonshot-v1-8k'
-        }
     try:
         # 添加系统消息作为对话起点
-        system_msg = [{"role": "system", "content": "你是一个有帮助的助手, 负责解决医疗问题"}]
+        system_msg = [{"role": "system", "content": "你是一个有帮助的助手"}]
         validated_msgs = system_msg + validate_messages(messages)
         
         stream = client.chat.completions.create(
-            model=mappings[model_id],  # 指定专用模型
+            model=model_id,  # 指定专用模型
             messages=validated_msgs,
             stream=True,
             temperature=0.7,
@@ -110,3 +75,20 @@ def chat(user_input: str, history: list, model_id: str) -> Generator[list, None,
     except Exception as e:
         history[-1][1] = f"错误: {str(e)}"
         yield history
+
+# Gradio界面配置
+with gr.Blocks() as demo:
+    chatbot = gr.Chatbot(height=400)
+    msg = gr.Textbox(label="输入消息")
+    clear = gr.Button("清空历史")
+
+    def user(user_message: str, history: list):
+        return "", history + [[user_message, None]]
+
+    msg.submit(user, [msg, chatbot], [msg, chatbot]).then(
+        chat, [msg, chatbot], chatbot
+    )
+    clear.click(lambda: [], None, chatbot, queue=False)
+
+if __name__ == "__main__":
+    demo.launch(share=True)
