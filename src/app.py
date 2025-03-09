@@ -56,6 +56,25 @@ def make_prediction(pred_file):
     
     except Exception as e:
         return f"预测出错: {str(e)}"
+    
+def evaluate_model(file):
+    if global_model is None:
+        return "⚠️ 请先训练模型！"
+    if not file:
+        return "⚠️ 请先上传文件！"
+    try:
+        X, y = load_data(file.name)
+        df = pd.DataFrame(X)
+        df['标签'] = y
+        
+        y_proba = global_model.predict_proba(X)
+        roc_fig = global_model.plot_roc(y, y_proba)
+        pr_fig = global_model.plot_pr(y, y_proba)
+        confusion_matrix_fig = global_model.plot_confusion_matrix(global_model.metrics['confusion_matrix'])
+        return df, roc_fig, pr_fig, confusion_matrix_fig
+        
+    except Exception as e:
+        return f"加载评估指标出错: {str(e)}"
         
 # 界面布局
 with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 1200px !important}") as demo:
@@ -92,7 +111,24 @@ with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 1200px
                     interactive=False,
                     placeholder="训练结果将显示在此处..."
                 )
-            
+            with gr.Tab("模型评估"):
+                # dataframe
+                # 四个绘图区
+                # 上传文件
+                eval_file = gr.File(
+                    label="上传评估文件（CSV/XLSX）",
+                    file_types=[".csv", ".xlsx"]
+                )
+                # 开始评估按钮
+                eval_btn = gr.Button("开始评估", variant="secondary")
+                dataframe_component = gr.DataFrame(
+                    label="模型指标",
+                )
+                roc_curve_plot = gr.Plot(label="ROC曲线")
+                pr_curve_plot = gr.Plot(label="PR曲线")
+                confusion_matrix_plot = gr.Plot(label="混淆矩阵")
+                
+                
             with gr.Tab("批量预测"):
                 pred_file = gr.File(
                     label="上传预测文件（CSV/XLSX）",
@@ -131,6 +167,12 @@ with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 1200px
         train_model,
         inputs=[train_file, model_choice, kernel, C, gamma],
         outputs=train_output 
+    )
+    
+    eval_btn.click(
+        evaluate_model,
+        inputs=eval_file,
+        outputs=[dataframe_component, roc_curve_plot, pr_curve_plot, confusion_matrix_plot]
     )
     
     pred_btn.click(

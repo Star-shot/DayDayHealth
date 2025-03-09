@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import json
 import os
 import matplotlib.pyplot as plt
@@ -80,13 +81,14 @@ class SVM:
             metrics['auc'] = None
 
         # self._save_metrics(metrics)
-        
+        # metrics in df
+        metrics_df = pd.DataFrame(metrics, index=[0])
         # visualization
         self.plot_roc(y, y_proba)
         self.plot_pr(y, y_proba)
         self.plot_confusion_matrix(metrics['confusion_matrix'])
         
-        return metrics
+        return metrics_df
 
     def _save_metrics(self, metrics):
         # save metrics to json file
