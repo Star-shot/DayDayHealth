@@ -155,7 +155,7 @@ with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 1200px
             )
             model_id = gr.Dropdown(
                 label="模型ID",
-                value="moonshot-v1-128k",
+                value="医疗LLM",
                 choices=["医疗LLM", "金融LLM", "教育LLM"]
             )
             clear_btn = gr.ClearButton([msg, chatbot], size='sm')
