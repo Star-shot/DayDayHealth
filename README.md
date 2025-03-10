@@ -17,3 +17,9 @@ now only support [moonshot](https://platform.moonshot.cn/docs/guide/start-using-
 python src/app.py
 ```
 
+# TODO
+- [ ] add more ML models
+- [ ] support more LLMs, include local models
+- [ ] create a medical (reasoning) dataset and SFT a model
+- [ ] integrate more amazing plots
+- [ ] integrate rag database
