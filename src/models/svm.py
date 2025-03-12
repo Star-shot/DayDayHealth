@@ -2,14 +2,12 @@ import numpy as np
 import pandas as pd
 import json
 import os
-import matplotlib.pyplot as plt
-import seaborn as sns
 from sklearn import svm
 from sklearn.metrics import (
     accuracy_score, confusion_matrix, classification_report,
     precision_score, recall_score, f1_score, roc_auc_score,
-    roc_curve, precision_recall_curve, average_precision_score
 )
+
 
 class SVM:
     """
@@ -27,7 +25,6 @@ class SVM:
         self.C = C
         self.gamma = gamma
         self.out_dir = out_dir
-        self.metrics = None
         self.model = svm.SVC(
                 kernel=self.kernel,
                 C=self.C,
@@ -59,8 +56,8 @@ class SVM:
         y_pred = self.predict(X)
         y_proba = self.predict_proba(X)
         
-        # calculate metrics
-        self.metrics = {
+        # calculate common metrics
+        metrics = {
             'accuracy': accuracy_score(y, y_pred),
             'precision_macro': precision_score(y, y_pred, average='macro', zero_division=0),
             'recall_macro': recall_score(y, y_pred, average='macro', zero_division=0),
@@ -79,85 +76,13 @@ class SVM:
         except Exception as e:
             print(f"Error calculating AUC: {str(e)}")
             metrics['auc'] = None
-
-        # self._save_metrics(metrics)
-        # metrics in df
-        metrics_df = pd.DataFrame(metrics, index=[0])
-        # visualization
-        self.plot_roc(y, y_proba)
-        self.plot_pr(y, y_proba)
-        self.plot_confusion_matrix(metrics['confusion_matrix'])
         
-        return metrics_df
+        return metrics
 
     def _save_metrics(self, metrics):
         # save metrics to json file
         with open(f'{self.out_dir}/metrics.json', 'w') as f:
             json.dump(metrics, f, indent=2)
-
-    def plot_roc(self, y_true, y_proba):
-        # plot ROC curve
-        plt.figure(figsize=(10, 8))
-        
-        for i, class_id in enumerate(self.classes_):
-            fpr, tpr, _ = roc_curve(y_true, y_proba[:, i], pos_label=class_id)
-            auc = roc_auc_score(
-                (y_true == class_id).astype(int), 
-                y_proba[:, i]
-            )
-            plt.plot(fpr, tpr, label=f'Class {class_id} (AUC = {auc:.2f})')
-            
-        plt.plot([0, 1], [0, 1], 'k--')
-        plt.xlim([0.0, 1.0])
-        plt.ylim([0.0, 1.05])
-        plt.xlabel('False Positive Rate')
-        plt.ylabel('True Positive Rate')
-        plt.title('ROC Curves')
-        plt.legend(loc="lower right")
-        # plt.savefig(f'{self.out_dir}/roc_curves.png')
-        plt.close()
-
-    def plot_pr(self, y_true, y_proba):
-        # plot PR curve
-        plt.figure(figsize=(10, 8))
-        
-        for i, class_id in enumerate(self.classes_):
-            precision, recall, _ = precision_recall_curve(
-                (y_true == class_id).astype(int),
-                y_proba[:, i]
-            )
-            ap = average_precision_score(
-                (y_true == class_id).astype(int),
-                y_proba[:, i]
-            )
-            plt.plot(recall, precision, label=f'Class {class_id} (AP = {ap:.2f})')
-            
-        plt.xlabel('Recall')
-        plt.ylabel('Precision')
-        plt.ylim([0.0, 1.05])
-        plt.xlim([0.0, 1.0])
-        plt.title('Precision-Recall Curves')
-        plt.legend(loc="upper right")
-        # plt.savefig(f'{self.out_dir}/pr_curves.png')
-        plt.close()
-
-    def plot_confusion_matrix(self, matrix):
-        # plot confusion matrix
-        
-        plt.figure(figsize=(10, 8))
-        sns.heatmap(
-            matrix, 
-            annot=True, 
-            fmt='d', 
-            cmap='Blues',
-            xticklabels=self.classes_,
-            yticklabels=self.classes_
-        )
-        plt.xlabel('Predicted Label')
-        plt.ylabel('True Label')
-        plt.title('Confusion Matrix')
-        # plt.savefig(f'{self.out_dir}/confusion_matrix.png')
-        plt.close()
 
 # TEST
 if __name__ == "__main__":

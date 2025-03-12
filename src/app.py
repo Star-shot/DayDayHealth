@@ -4,29 +4,58 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, recall_score, f1_score
-from utils import load_data, load_openai_config, chat
-from models.svm import SVM  # 导入自定义SVM类
-from openai import OpenAI
+from utils import load_data, chat
+from models.svm import SVM
+from models.logistic_regression import LogisticRegression
+from models.random_forest import RandomForest
+from plot import Visualizer  # 导入可视化类
 
 
 # 全局变量存储模型
 global_model = None
 
 # 模型训练函数（使用自定义SVM）
-def train_model(file, model_type, kernel='linear', C=1.0, gamma='scale'):
+def train_model(
+    file, 
+    model_type,
+    # 随机森林参数
+    rf_n_estimators=100,
+    rf_max_depth=None,
+    rf_max_features="sqrt",
+    # SVM参数
+    svm_kernel="linear",
+    svm_C=1.0,
+    svm_gamma="scale",
+    # 逻辑回归参数 
+    lr_penalty="l2",
+    lr_C=1.0,
+    lr_solver="lbfgs"
+):
     global global_model
     try:
         X, y = load_data(file.name)
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
         
         if model_type == "Random Forest":
-            model = RandomForestClassifier()
+            model = RandomForest(
+                n_estimators=rf_n_estimators,
+                max_depth=rf_max_depth if rf_max_depth > 0 else None,
+                max_features=rf_max_features
+            )
         elif model_type == "SVM":
-            model = SVM(kernel=kernel, C=C, gamma=gamma)  # 使用自定义SVM
-        else:
-            model = LogisticRegression()
+            model = SVM(
+                kernel=svm_kernel,
+                C=svm_C,
+                gamma=svm_gamma
+            )
+        elif model_type == "Logistic Regression":
+            model = LogisticRegression(
+                penalty=lr_penalty,
+                C=lr_C,
+                solver=lr_solver
+            )
             
-        model.train(X_train, y_train) if model_type == "SVM" else model.fit(X_train, y_train)
+        model.train(X_train, y_train)
         
         preds = model.predict(X_test)
         acc = accuracy_score(y_test, preds)
@@ -62,19 +91,28 @@ def evaluate_model(file):
         return "⚠️ 请先训练模型！"
     if not file:
         return "⚠️ 请先上传文件！"
-    try:
-        X, y = load_data(file.name)
-        df = pd.DataFrame(X)
-        df['标签'] = y
-        
-        y_proba = global_model.predict_proba(X)
-        roc_fig = global_model.plot_roc(y, y_proba)
-        pr_fig = global_model.plot_pr(y, y_proba)
-        confusion_matrix_fig = global_model.plot_confusion_matrix(global_model.metrics['confusion_matrix'])
-        return df, roc_fig, pr_fig, confusion_matrix_fig
-        
-    except Exception as e:
-        return f"加载评估指标出错: {str(e)}"
+    # try:
+
+    X, y = load_data(file.name)
+    df = pd.DataFrame(X)
+    df['标签'] = y
+    # 提取类别
+    classes = df['标签'].unique()
+    viz = Visualizer(classes)
+    y_proba = global_model.predict_proba(X)
+    roc_fig = viz.plot_roc(y, y_proba)
+    pr_fig = viz.plot_pr(y, y_proba)
+    metrics = global_model.evaluate(X, y)
+    confusion_matrix_fig = viz.plot_confusion_matrix(metrics['confusion_matrix'])
+    return df, roc_fig, pr_fig, confusion_matrix_fig
+
+                # 动态显示参数区的回调函数
+def toggle_params(model_type):
+    return {
+        rf_params: gr.Accordion(visible=model_type == "Random Forest"),
+        svm_params: gr.Accordion(visible=model_type == "SVM"),
+        lr_params: gr.Accordion(visible=model_type == "Logistic Regression")
+    }     
         
 # 界面布局
 with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 1200px !important}") as demo:
@@ -83,6 +121,18 @@ with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 1200px
     with gr.Row():
         # 左侧面板
         with gr.Column(scale=2):
+            with gr.Tab("数据处理"):
+                # TODO
+                data_file = gr.File(
+                    label="上传数据文件（CSV/XLSX）",
+                    file_types=[".csv", ".xlsx"]
+                )
+                data_output = gr.DataFrame(
+                    label="数据预览",
+                    interactive=False,
+                )
+                preprocess_btn = gr.Button("数据预处理", variant="secondary")
+                preprocess_output = gr.Textbox()
             with gr.Tab("模型训练"):
                 train_file = gr.File(
                     label="上传训练文件（CSV/XLSX）",
@@ -93,18 +143,47 @@ with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 1200px
                     label="选择模型",
                     value="Random Forest"
                 )
-                with gr.Accordion("SVM高级参数", open=False):
-                    kernel = gr.Dropdown(
+                # 各模型参数区
+                with gr.Accordion("随机森林参数", visible=True) as rf_params:  # 默认显示
+                    rf_n_estimators = gr.Slider(50, 500, value=100, step=50, label="树的数量 (n_estimators)")
+                    rf_max_depth = gr.Slider(2, 50, value=None, step=1, label="最大深度 (max_depth)")
+                    rf_max_features = gr.Dropdown(
+                        ["sqrt", "log2", 0.5, 0.8], 
+                        value="sqrt", 
+                        label="最大特征数 (max_features)"
+                    )
+                
+                with gr.Accordion("SVM参数", visible=False) as svm_params:
+                    svm_kernel = gr.Dropdown(
                         ["linear", "poly", "rbf", "sigmoid"],
                         value="linear",
-                        label="核函数"
+                        label="核函数 (kernel)"
                     )
-                    C = gr.Number(1.0, label="正则化参数 C")
-                    gamma = gr.Dropdown(
+                    svm_C = gr.Slider(0.1, 10.0, value=1.0, step=0.1, label="正则化强度 (C)")
+                    svm_gamma = gr.Dropdown(
                         ["scale", "auto"],
                         value="scale",
-                        label="Gamma 参数"
+                        label="核系数 (gamma)"
                     )
+                
+                with gr.Accordion("逻辑回归参数", visible=False) as lr_params:
+                    lr_penalty = gr.Dropdown(
+                        ["l2", "l1", "elasticnet", "none"],
+                        value="l2",
+                        label="正则化类型 (penalty)"
+                    )
+                    lr_C = gr.Slider(0.01, 10.0, value=1.0, step=0.1, label="正则化强度 (C)")
+                    lr_solver = gr.Dropdown(
+                        ["lbfgs", "sag", "saga", "newton-cg", "liblinear"],
+                        value="lbfgs",
+                        label="优化算法 (solver)"
+                    )
+   
+                model_choice.change(
+                    fn=toggle_params,
+                    inputs=model_choice,
+                    outputs=[rf_params, svm_params, lr_params]
+                )
                 train_btn = gr.Button("开始训练", variant="primary") 
                 train_output = gr.Textbox(
                     label="训练结果",
@@ -140,6 +219,11 @@ with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 1200px
                     headers=["样本序号", "预测结果"],
                     interactive=False
                 )
+                
+            with gr.Tab("可视化"):
+                pass
+            #TODO
+                
 
         # 右侧聊天面板
         with gr.Column(scale=1):
@@ -164,10 +248,26 @@ with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 1200px
 
     # 事件绑定
     train_btn.click(
-        train_model,
-        inputs=[train_file, model_choice, kernel, C, gamma],
-        outputs=train_output 
+        fn=train_model,
+        inputs=[
+            train_file, 
+            model_choice,      # 模型类型
+            # 随机森林参数
+            rf_n_estimators, 
+            rf_max_depth, 
+            rf_max_features,
+            # SVM参数
+            svm_kernel,
+            svm_C,
+            svm_gamma,
+            # 逻辑回归参数
+            lr_penalty,
+            lr_C,
+            lr_solver
+        ],
+        outputs=train_output
     )
+
     
     eval_btn.click(
         evaluate_model,
