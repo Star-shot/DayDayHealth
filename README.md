@@ -3,6 +3,7 @@ This repo aims to develop a open platform to monitor your health risks, and help
 
 ## 1. Install requirements
 ```
+cd DayDayHealth
 pip install -r requirements.txt
 ```
 
@@ -14,6 +15,7 @@ now only support [moonshot](https://platform.moonshot.cn/docs/guide/start-using-
 ## 3. Run
 
 ```
+cd src
 python src/app.py
 ```
 
