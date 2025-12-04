@@ -4,7 +4,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, recall_score, f1_score
-from utils import load_data, chat
+from utils import load_data, chat, load_config
 from models.svm import SVM
 from models.logistic_regression import LogisticRegression
 from models.random_forest import RandomForest
@@ -249,8 +249,31 @@ with gr.Blocks() as demo:
                 value="健康管理",
                 choices=["疾病诊断", "健康管理", "营养指导"]
             )
+            provider_info = gr.Markdown(value="**当前模型**: qwen / qwen-max")
             send_btn = gr.Button("发送", variant="primary", size='sm')
             clear_btn = gr.ClearButton([msg, chatbot, img_input], size='sm')
+            
+            def update_provider_info(agent_id):
+                """更新显示的提供商信息"""
+                try:
+                    config = load_config()
+                    agent_config = config.get('agent_models', {}).get(agent_id, {})
+                    provider = agent_config.get('provider', config.get('default_provider', 'kimi'))
+                    model_type = agent_config.get('model', 'default')
+                    
+                    # 获取实际模型名称
+                    providers = config.get('llm_providers', {})
+                    model_name = providers.get(provider, {}).get('models', {}).get(model_type, 'unknown')
+                    
+                    return f"**当前模型**: {provider} / {model_name}"
+                except:
+                    return "**当前模型**: 配置加载失败"
+            
+            model_id.change(
+                fn=update_provider_info,
+                inputs=model_id,
+                outputs=provider_info
+            )
             
             # 用于存储图片路径，供 API 调用使用
             image_cache = gr.State(None)

@@ -50,15 +50,47 @@ def load_data(filepath):
     
     return X, y
 
-def load_openai_config():
-    """加载LLM配置"""
+def load_config():
+    """加载完整配置"""
     config_path = Path("../config.yaml") 
     if not config_path.exists():
         raise FileNotFoundError("找不到配置文件 config.yaml")
     
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-        return config['llm_config']['OpenAI']['api_key'], config['llm_config']['OpenAI']['base_url']
+    with open(config_path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)
+
+
+def get_llm_config(agent_id: str = None):
+    """
+    根据智能体获取对应的 LLM 配置
+    
+    返回: (api_key, base_url, model_name)
+    """
+    config = load_config()
+    
+    # 获取智能体对应的提供商和模型类型
+    if agent_id and agent_id in config.get('agent_models', {}):
+        agent_config = config['agent_models'][agent_id]
+        provider_name = agent_config.get('provider', config.get('default_provider', 'kimi'))
+        model_type = agent_config.get('model', 'default')
+    else:
+        provider_name = config.get('default_provider', 'kimi')
+        model_type = 'default'
+    
+    # 获取提供商配置
+    providers = config.get('llm_providers', {})
+    if provider_name not in providers:
+        raise ValueError(f"未找到提供商配置: {provider_name}")
+    
+    provider = providers[provider_name]
+    api_key = provider['api_key']
+    base_url = provider['base_url']
+    
+    # 获取模型名称
+    models = provider.get('models', {})
+    model_name = models.get(model_type, models.get('default', 'gpt-3.5-turbo'))
+    
+    return api_key, base_url, model_name
 
 
 def validate_messages(messages: list) -> list:
@@ -161,16 +193,15 @@ def parse_response_content(content) -> str:
 def stream_response(messages: list, model_id: str) -> Generator[str, None, None]:
     """流式响应生成器"""
     full_response = ""
-    api_key, base_url = load_openai_config()
+    
+    # 从配置获取 LLM 信息
+    api_key, base_url, model_name = get_llm_config(model_id)
+    
     client = OpenAI(
         api_key=api_key,
         base_url=base_url
     )
-    mappings = {
-       '疾病诊断': 'moonshot-v1-128k-vision-preview',
-       '健康管理': 'moonshot-v1-128k-vision-preview',
-       '营养指导': 'moonshot-v1-128k-vision-preview'
-    }
+    
     try:
         # 添加系统消息作为对话起点
         system_prompt = get_system_prompt(model_id)
@@ -178,7 +209,7 @@ def stream_response(messages: list, model_id: str) -> Generator[str, None, None]
         validated_msgs = system_msg + validate_messages(messages)
         
         stream = client.chat.completions.create(
-            model=mappings[model_id],
+            model=model_name,
             messages=validated_msgs,
             stream=True,
             temperature=0.7,
