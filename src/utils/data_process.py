@@ -387,7 +387,8 @@ class DataProcessor:
         }
     
     def plot_boxplot(self, columns: List[str] = None, figsize: Tuple[int, int] = (14, 8),
-                      max_features: int = MAX_DISPLAY_FEATURES) -> plt.Figure:
+                      max_features: int = MAX_DISPLAY_FEATURES, 
+                      normalize: bool = True) -> plt.Figure:
         """
         绘制美观的箱线图（横向展示，自动选择代表性特征）
         
@@ -395,6 +396,7 @@ class DataProcessor:
             columns: 要绘制的列，None表示自动选择
             figsize: 图形大小
             max_features: 最大显示特征数
+            normalize: 是否归一化数据（便于不同尺度特征比较）
             
         Returns:
             matplotlib Figure 对象
@@ -413,8 +415,24 @@ class DataProcessor:
         # 使用横向箱线图，更美观
         fig, ax = plt.subplots(figsize=figsize)
         
-        # 准备数据（标准化用于可视化，便于比较）
+        # 准备数据
         df_plot = self.df[columns].copy()
+        
+        # 统计原始异常值信息（在归一化之前）
+        outlier_counts = {}
+        for col in columns:
+            outlier_info = self.detect_outliers_iqr(col)
+            outlier_counts[col] = outlier_info['outlier_count']
+        
+        # 归一化处理（Min-Max 标准化到 0-1）
+        if normalize:
+            for col in columns:
+                col_min = df_plot[col].min()
+                col_max = df_plot[col].max()
+                if col_max > col_min:
+                    df_plot[col] = (df_plot[col] - col_min) / (col_max - col_min)
+                else:
+                    df_plot[col] = 0.5  # 常量列
         
         # 创建美观的箱线图
         colors = sns.color_palette("husl", n_cols)
@@ -438,21 +456,32 @@ class DataProcessor:
             patch.set_alpha(0.7)
             patch.set_edgecolor('black')
         
-        # 添加异常值数量标注
+        # 添加异常值数量标注（使用原始数据的统计）
         for i, col in enumerate(columns):
-            outlier_info = self.detect_outliers_iqr(col)
-            outlier_count = outlier_info['outlier_count']
+            outlier_count = outlier_counts[col]
             if outlier_count > 0:
-                ax.annotate(f'{outlier_count} outliers', 
-                           xy=(df_plot[col].max() * 1.02, i + 1),
-                           fontsize=9, color='red', alpha=0.8)
+                # 标注在图的右侧
+                ax.annotate(f'{outlier_count}', 
+                           xy=(1.05, i + 1),
+                           fontsize=9, color='red', alpha=0.8,
+                           fontweight='bold')
         
-        ax.set_xlabel(get_display_text('数值', 'Value'), fontsize=12)
-        ax.set_title(get_display_text(
-            '箱线图 - 异常值检测\n(按方差选取代表性特征)', 
-            'Box Plot - Outlier Detection\n(Top features by variance)'
-        ), fontsize=14, fontweight='bold')
+        # 设置标签
+        xlabel = get_display_text('归一化数值 (0-1)', 'Normalized Value (0-1)') if normalize else get_display_text('数值', 'Value')
+        ax.set_xlabel(xlabel, fontsize=12)
+        
+        title = get_display_text(
+            '箱线图 - 异常值检测\n(已归一化，红色数字为异常值数量)', 
+            'Box Plot - Outlier Detection\n(Normalized, red numbers = outlier count)'
+        ) if normalize else get_display_text(
+            '箱线图 - 异常值检测', 
+            'Box Plot - Outlier Detection'
+        )
+        ax.set_title(title, fontsize=14, fontweight='bold')
         ax.grid(axis='x', alpha=0.3, linestyle='--')
+        
+        if normalize:
+            ax.set_xlim(-0.05, 1.15)  # 留出标注空间
         
         # 调整布局
         plt.tight_layout()
@@ -727,30 +756,94 @@ class DataProcessor:
         fig.fig.suptitle("配对散点图", y=1.02)
         return fig.fig
     
-    def get_high_correlation_pairs(self, threshold: float = 0.8) -> pd.DataFrame:
+    def get_high_correlation_pairs(
+        self, 
+        threshold: float = None, 
+        top_k: int = None,
+        adaptive: bool = True,
+        min_pairs: int = 5
+    ) -> pd.DataFrame:
         """
         获取高相关性特征对
         
         Args:
-            threshold: 相关系数阈值
+            threshold: 相关系数阈值（None 时使用自适应）
+            top_k: 返回前 k 个最高相关性对（优先于 threshold）
+            adaptive: 是否使用自适应阈值（当 threshold 和 top_k 都为 None 时）
+            min_pairs: 自适应模式下最少返回的特征对数量
             
         Returns:
             高相关性特征对的 DataFrame
         """
         numeric_cols = self.df.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) < 2:
+            return pd.DataFrame(columns=['特征1', '特征2', '相关系数'])
+        
         corr = self.df[numeric_cols].corr()
         
-        pairs = []
+        # 收集所有特征对及其相关系数
+        all_pairs = []
         for i in range(len(corr.columns)):
             for j in range(i + 1, len(corr.columns)):
-                if abs(corr.iloc[i, j]) >= threshold:
-                    pairs.append({
+                corr_val = corr.iloc[i, j]
+                if not np.isnan(corr_val):
+                    all_pairs.append({
                         '特征1': corr.columns[i],
                         '特征2': corr.columns[j],
-                        '相关系数': round(corr.iloc[i, j], 3)
+                        '相关系数': round(corr_val, 3)
                     })
         
-        return pd.DataFrame(pairs).sort_values('相关系数', key=abs, ascending=False)
+        if not all_pairs:
+            return pd.DataFrame(columns=['特征1', '特征2', '相关系数'])
+        
+        # 按绝对值排序
+        df_pairs = pd.DataFrame(all_pairs)
+        df_pairs = df_pairs.sort_values('相关系数', key=abs, ascending=False).reset_index(drop=True)
+        
+        # 模式1: top_k - 返回前 k 个
+        if top_k is not None:
+            return df_pairs.head(top_k)
+        
+        # 模式2: 固定阈值
+        if threshold is not None:
+            result = df_pairs[df_pairs['相关系数'].abs() >= threshold]
+            # 如果结果为空且开启自适应，降级到自适应模式
+            if len(result) == 0 and adaptive:
+                pass  # 继续到自适应模式
+            else:
+                return result
+        
+        # 模式3: 自适应阈值
+        if adaptive:
+            # 确保至少返回 min_pairs 个结果
+            if len(df_pairs) <= min_pairs:
+                return df_pairs
+            
+            # 计算自适应阈值：取前 min_pairs 个的最小绝对值，或者使用分位数
+            abs_corrs = df_pairs['相关系数'].abs()
+            
+            # 策略1: 使用 75 分位数作为阈值
+            q75_threshold = abs_corrs.quantile(0.75)
+            
+            # 策略2: 确保至少有 min_pairs 个结果
+            if len(df_pairs) > min_pairs:
+                min_threshold = abs_corrs.iloc[min_pairs - 1]
+            else:
+                min_threshold = abs_corrs.min()
+            
+            # 取两者中较小的（返回更多结果）
+            adaptive_threshold = min(q75_threshold, min_threshold)
+            
+            result = df_pairs[abs_corrs >= adaptive_threshold]
+            
+            # 兜底：如果仍然太少，返回前 min_pairs 个
+            if len(result) < min_pairs:
+                return df_pairs.head(min_pairs)
+            
+            return result
+        
+        # 默认返回所有
+        return df_pairs
     
     # ==================== 辅助方法 ====================
     
@@ -764,6 +857,250 @@ class DataProcessor:
         summary['缺失值'] = self.df.isnull().sum()
         summary['缺失率(%)'] = (self.df.isnull().sum() / len(self.df) * 100).round(2)
         return summary
+    
+    def generate_report(self, include_recommendations: bool = True) -> dict:
+        """
+        生成数据分析报告
+        
+        Args:
+            include_recommendations: 是否包含处理建议
+            
+        Returns:
+            包含报告各部分的字典
+        """
+        report = {
+            'overview': {},
+            'missing_analysis': {},
+            'outlier_analysis': {},
+            'distribution_analysis': {},
+            'correlation_analysis': {},
+            'recommendations': [],
+            'processing_log': self.processing_log,
+            'markdown': '',
+            'llm_prompt': ''
+        }
+        
+        # 1. 数据概览
+        numeric_cols = self.df.select_dtypes(include=[np.number]).columns.tolist()
+        categorical_cols = self.df.select_dtypes(include=['object', 'category']).columns.tolist()
+        
+        report['overview'] = {
+            'total_rows': len(self.df),
+            'total_columns': len(self.df.columns),
+            'numeric_columns': len(numeric_cols),
+            'categorical_columns': len(categorical_cols),
+            'memory_usage_mb': round(self.df.memory_usage(deep=True).sum() / 1024 / 1024, 2),
+            'column_names': self.df.columns.tolist()
+        }
+        
+        # 2. 缺失值分析
+        missing_info = self.get_missing_info()
+        missing_cols = missing_info[missing_info['Missing'] > 0]
+        report['missing_analysis'] = {
+            'total_missing_cells': int(self.df.isnull().sum().sum()),
+            'missing_rate': round(self.df.isnull().sum().sum() / self.df.size * 100, 2),
+            'columns_with_missing': len(missing_cols),
+            'details': missing_cols.to_dict('records') if len(missing_cols) > 0 else []
+        }
+        
+        # 3. 异常值分析
+        outlier_info = []
+        for col in numeric_cols:
+            outlier_result = self.detect_outliers_iqr(col)
+            outlier_count = outlier_result['outlier_count']
+            if outlier_count > 0:
+                # 获取异常值的实际数据
+                lower_bound = outlier_result['lower_bound']
+                upper_bound = outlier_result['upper_bound']
+                outlier_values = self.df[(self.df[col] < lower_bound) | (self.df[col] > upper_bound)][col]
+                
+                outlier_info.append({
+                    'column': col,
+                    'outlier_count': outlier_count,
+                    'outlier_rate': round(outlier_count / len(self.df) * 100, 2),
+                    'min_outlier': round(float(outlier_values.min()), 3) if len(outlier_values) > 0 else None,
+                    'max_outlier': round(float(outlier_values.max()), 3) if len(outlier_values) > 0 else None
+                })
+        report['outlier_analysis'] = {
+            'columns_with_outliers': len(outlier_info),
+            'details': outlier_info
+        }
+        
+        # 4. 分布分析
+        dist_info = []
+        for col in numeric_cols[:10]:  # 限制数量
+            try:
+                skewness = float(self.df[col].skew())
+                kurtosis = float(self.df[col].kurtosis())
+                dist_info.append({
+                    'column': col,
+                    'mean': round(self.df[col].mean(), 3),
+                    'std': round(self.df[col].std(), 3),
+                    'skewness': round(skewness, 3),
+                    'kurtosis': round(kurtosis, 3),
+                    'distribution_type': '右偏' if skewness > 1 else ('左偏' if skewness < -1 else '近似正态')
+                })
+            except:
+                pass
+        report['distribution_analysis'] = {
+            'analyzed_columns': len(dist_info),
+            'details': dist_info
+        }
+        
+        # 5. 相关性分析
+        corr_pairs = self.get_high_correlation_pairs(top_k=10)
+        report['correlation_analysis'] = {
+            'high_correlation_pairs': corr_pairs.to_dict('records') if len(corr_pairs) > 0 else [],
+            'max_correlation': round(corr_pairs['相关系数'].abs().max(), 3) if len(corr_pairs) > 0 else 0
+        }
+        
+        # 6. 生成建议
+        if include_recommendations:
+            recommendations = []
+            
+            # 缺失值建议
+            if report['missing_analysis']['missing_rate'] > 30:
+                recommendations.append("⚠️ 数据缺失率较高(>30%)，建议检查数据来源或考虑删除高缺失列")
+            elif report['missing_analysis']['missing_rate'] > 5:
+                recommendations.append("💡 存在一定缺失值，建议使用 KNN 或中位数填充")
+            
+            # 异常值建议
+            if len(outlier_info) > len(numeric_cols) * 0.5:
+                recommendations.append("⚠️ 多数数值列存在异常值，建议检查数据质量或使用截断处理")
+            
+            # 分布建议
+            skewed_cols = [d['column'] for d in dist_info if abs(d.get('skewness', 0)) > 1]
+            if skewed_cols:
+                recommendations.append(f"💡 以下列分布偏斜，建议进行对数或Box-Cox变换: {', '.join(skewed_cols[:5])}")
+            
+            # 相关性建议
+            if report['correlation_analysis']['max_correlation'] > 0.9:
+                recommendations.append("⚠️ 存在高度相关特征(>0.9)，建议进行特征选择或PCA降维")
+            
+            if not recommendations:
+                recommendations.append("✅ 数据质量良好，可直接用于建模")
+            
+            report['recommendations'] = recommendations
+        
+        # 7. 生成 Markdown 格式报告
+        report['markdown'] = self._generate_markdown_report(report)
+        
+        # 8. 生成 LLM 分析提示词
+        report['llm_prompt'] = self._generate_llm_prompt(report)
+        
+        return report
+    
+    def _generate_markdown_report(self, report: dict) -> str:
+        """生成 Markdown 格式的报告"""
+        md = []
+        md.append("# 📊 数据分析报告\n")
+        
+        # 概览
+        ov = report['overview']
+        md.append("## 1. 数据概览")
+        md.append(f"- **总行数**: {ov['total_rows']:,}")
+        md.append(f"- **总列数**: {ov['total_columns']}")
+        md.append(f"- **数值列**: {ov['numeric_columns']} 列")
+        md.append(f"- **分类列**: {ov['categorical_columns']} 列")
+        md.append(f"- **内存占用**: {ov['memory_usage_mb']} MB\n")
+        
+        # 缺失值
+        ma = report['missing_analysis']
+        md.append("## 2. 缺失值分析")
+        md.append(f"- **总缺失单元格**: {ma['total_missing_cells']:,}")
+        md.append(f"- **整体缺失率**: {ma['missing_rate']}%")
+        md.append(f"- **含缺失值的列数**: {ma['columns_with_missing']}")
+        if ma['details']:
+            md.append("\n| 列名 | 缺失数量 | 缺失率 |")
+            md.append("|------|----------|--------|")
+            for d in ma['details'][:10]:
+                md.append(f"| {d.get('Column', 'N/A')} | {d.get('Missing', 0)} | {d.get('Missing%', 0)}% |")
+        md.append("")
+        
+        # 异常值
+        oa = report['outlier_analysis']
+        md.append("## 3. 异常值分析")
+        md.append(f"- **含异常值的列数**: {oa['columns_with_outliers']}")
+        if oa['details']:
+            md.append("\n| 列名 | 异常值数量 | 异常率 |")
+            md.append("|------|------------|--------|")
+            for d in oa['details'][:10]:
+                md.append(f"| {d['column']} | {d['outlier_count']} | {d['outlier_rate']}% |")
+        md.append("")
+        
+        # 分布
+        da = report['distribution_analysis']
+        md.append("## 4. 数据分布")
+        if da['details']:
+            md.append("\n| 列名 | 均值 | 标准差 | 偏度 | 分布类型 |")
+            md.append("|------|------|--------|------|----------|")
+            for d in da['details'][:10]:
+                md.append(f"| {d['column']} | {d['mean']} | {d['std']} | {d['skewness']} | {d['distribution_type']} |")
+        md.append("")
+        
+        # 相关性
+        ca = report['correlation_analysis']
+        md.append("## 5. 相关性分析")
+        md.append(f"- **最高相关系数**: {ca['max_correlation']}")
+        if ca['high_correlation_pairs']:
+            md.append("\n| 特征1 | 特征2 | 相关系数 |")
+            md.append("|-------|-------|----------|")
+            for d in ca['high_correlation_pairs'][:10]:
+                md.append(f"| {d['特征1']} | {d['特征2']} | {d['相关系数']} |")
+        md.append("")
+        
+        # 建议
+        if report['recommendations']:
+            md.append("## 6. 处理建议")
+            for rec in report['recommendations']:
+                md.append(f"- {rec}")
+        md.append("")
+        
+        # 处理日志
+        if report['processing_log']:
+            md.append("## 7. 处理日志")
+            for log in report['processing_log']:
+                md.append(f"- {log}")
+        
+        return "\n".join(md)
+    
+    def _generate_llm_prompt(self, report: dict) -> str:
+        """生成用于 LLM 分析的提示词"""
+        prompt = []
+        prompt.append("请分析以下数据集的特征，并给出专业的数据处理和建模建议：\n")
+        
+        # 数据概览
+        ov = report['overview']
+        prompt.append(f"【数据规模】{ov['total_rows']} 行 × {ov['total_columns']} 列")
+        prompt.append(f"【列类型】数值列 {ov['numeric_columns']} 个，分类列 {ov['categorical_columns']} 个")
+        prompt.append(f"【列名】{', '.join(ov['column_names'][:20])}{'...' if len(ov['column_names']) > 20 else ''}\n")
+        
+        # 数据质量
+        ma = report['missing_analysis']
+        prompt.append(f"【缺失情况】整体缺失率 {ma['missing_rate']}%，{ma['columns_with_missing']} 列有缺失")
+        
+        oa = report['outlier_analysis']
+        prompt.append(f"【异常值】{oa['columns_with_outliers']} 列检测到异常值")
+        
+        # 分布特征
+        da = report['distribution_analysis']
+        skewed = [d['column'] for d in da['details'] if abs(d.get('skewness', 0)) > 1]
+        if skewed:
+            prompt.append(f"【偏斜分布】{', '.join(skewed)}")
+        
+        # 相关性
+        ca = report['correlation_analysis']
+        if ca['high_correlation_pairs']:
+            high_corr = [f"{d['特征1']}-{d['特征2']}({d['相关系数']})" for d in ca['high_correlation_pairs'][:5]]
+            prompt.append(f"【高相关特征对】{'; '.join(high_corr)}")
+        
+        prompt.append("\n请基于以上信息：")
+        prompt.append("1. 评估数据质量和潜在问题")
+        prompt.append("2. 推荐数据预处理步骤")
+        prompt.append("3. 建议适合的机器学习模型")
+        prompt.append("4. 提供特征工程建议")
+        
+        return "\n".join(prompt)
 
 
 # ==================== 便捷函数 ====================
