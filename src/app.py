@@ -115,10 +115,10 @@ def get_correlation_info(file):
 
 def process_data(file, fill_strategy, outlier_method):
     """执行数据预处理"""
-    global global_processor
+    global global_processor, global_report
     
     if file is None:
-        return None, "请先上传文件"
+        return None, "请先上传文件", "", ""
     
     try:
         if file.name.endswith('.csv'):
@@ -136,15 +136,57 @@ def process_data(file, fill_strategy, outlier_method):
         
         global_processor = processor
         
-        # 生成处理报告
-        log = processor.get_processing_log()
-        report = f"✅ 数据预处理完成！\n\n处理步骤:\n"
-        report += "\n".join([f"• {item}" for item in log])
-        report += f"\n\n处理后数据: {processor.get_data().shape[0]} 行 × {processor.get_data().shape[1]} 列"
+        # 生成完整分析报告
+        report = processor.generate_report()
+        global_report = report
         
-        return processor.get_data().head(20), report
+        # 简短处理日志
+        log = processor.get_processing_log()
+        brief_report = f"✅ 数据预处理完成！\n\n处理步骤:\n"
+        brief_report += "\n".join([f"• {item}" for item in log])
+        brief_report += f"\n\n处理后数据: {processor.get_data().shape[0]} 行 × {processor.get_data().shape[1]} 列"
+        
+        return (
+            processor.get_data().head(20), 
+            brief_report, 
+            report['markdown'],
+            report['llm_prompt']
+        )
     except Exception as e:
-        return None, f"处理失败: {str(e)}"
+        return None, f"处理失败: {str(e)}", "", ""
+
+
+# 全局报告存储
+global_report = None
+
+
+def download_report():
+    """下载分析报告（Markdown 格式）"""
+    global global_report
+    
+    if global_report is None:
+        return None
+    
+    import os
+    os.makedirs("output", exist_ok=True)
+    output_path = "output/data_analysis_report.md"
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(global_report['markdown'])
+    return output_path
+
+
+def send_to_llm(llm_prompt, model_id, history):
+    """将报告发送给 LLM 进行分析"""
+    if not llm_prompt:
+        history = history or []
+        history.append({"role": "assistant", "content": "⚠️ 请先执行数据预处理以生成分析报告"})
+        return history
+    
+    # 添加用户消息
+    history = history or []
+    history.append({"role": "user", "content": f"📊 数据分析请求:\n\n{llm_prompt}"})
+    
+    return history
 
 
 def download_processed_data():
@@ -261,7 +303,7 @@ def toggle_params(model_type):
         
 # 界面布局
 with gr.Blocks() as demo:
-    gr.Markdown("# 智能医疗系统")
+    gr.Markdown("# Starshot🌟")
     
     with gr.Row():
         # 左侧面板
@@ -312,8 +354,18 @@ with gr.Blocks() as demo:
                     preprocess_btn = gr.Button("执行预处理", variant="primary")
                     download_btn = gr.Button("下载处理后数据", variant="secondary")
                 
-                preprocess_output = gr.Textbox(label="处理报告", lines=6)
+                preprocess_output = gr.Textbox(label="处理日志", lines=4)
                 processed_file = gr.File(label="下载文件", visible=False)
+                
+                with gr.Accordion("📊 数据分析报告", open=False):
+                    report_markdown = gr.Markdown(label="分析报告", value="*执行预处理后自动生成报告*")
+                    
+                    with gr.Row():
+                        download_report_btn = gr.Button("📥 下载报告", variant="secondary", size="sm")
+                        send_to_llm_btn = gr.Button("🤖 发送给AI分析", variant="primary", size="sm")
+                    
+                    report_file = gr.File(label="报告文件", visible=False)
+                    llm_prompt_state = gr.State(value="")
             with gr.Tab("模型训练"):
                 train_file = gr.File(
                     label="上传训练文件（CSV/XLSX）",
@@ -516,12 +568,28 @@ with gr.Blocks() as demo:
     preprocess_btn.click(
         fn=process_data,
         inputs=[data_file, fill_strategy, outlier_method],
-        outputs=[data_output, preprocess_output]
+        outputs=[data_output, preprocess_output, report_markdown, llm_prompt_state]
     )
     
     download_btn.click(
         fn=download_processed_data,
         outputs=processed_file
+    )
+    
+    download_report_btn.click(
+        fn=download_report,
+        outputs=report_file
+    )
+    
+    # 发送给 LLM 分析：先添加消息到聊天，然后触发 LLM 响应
+    send_to_llm_btn.click(
+        fn=send_to_llm,
+        inputs=[llm_prompt_state, model_id, chatbot],
+        outputs=chatbot
+    ).then(
+        fn=chat,
+        inputs=[chatbot, model_id, image_cache],
+        outputs=chatbot
     )
     
     # 模型训练事件
