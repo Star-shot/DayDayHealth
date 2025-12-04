@@ -1,4 +1,0 @@
-llm_config:
-  OpenAI:
-    api_key: 
-    base_url: 

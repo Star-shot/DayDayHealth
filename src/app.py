@@ -5,14 +5,159 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, recall_score, f1_score
 from utils import load_data, chat, load_config
+from utils.data_process import DataProcessor
 from models.svm import SVM
 from models.logistic_regression import LogisticRegression
 from models.random_forest import RandomForest
 from plot import Visualizer  # 导入可视化类
 
 
-# 全局变量存储模型
+# 全局变量存储模型和数据处理器
 global_model = None
+global_processor = None
+
+
+# ==================== 数据预处理函数 ====================
+
+def load_preview_data(file):
+    """加载数据并预览"""
+    if file is None:
+        return None, "请先上传文件"
+    
+    try:
+        if file.name.endswith('.csv'):
+            df = pd.read_csv(file.name)
+        else:
+            df = pd.read_excel(file.name)
+        
+        info = f"数据形状: {df.shape[0]} 行 × {df.shape[1]} 列\n"
+        info += f"缺失值总数: {df.isnull().sum().sum()}"
+        return df.head(20), info
+    except Exception as e:
+        return None, f"加载失败: {str(e)}"
+
+
+def get_missing_info(file):
+    """获取缺失值信息"""
+    if file is None:
+        return None, None
+    
+    try:
+        if file.name.endswith('.csv'):
+            df = pd.read_csv(file.name)
+        else:
+            df = pd.read_excel(file.name)
+        
+        processor = DataProcessor(df)
+        missing_info = processor.get_missing_info()
+        missing_fig = processor.plot_missing_matrix()
+        
+        return missing_info, missing_fig
+    except Exception as e:
+        return None, None
+
+
+def get_outlier_info(file):
+    """获取异常值信息并绘制箱线图"""
+    if file is None:
+        return None
+    
+    try:
+        if file.name.endswith('.csv'):
+            df = pd.read_csv(file.name)
+        else:
+            df = pd.read_excel(file.name)
+        
+        processor = DataProcessor(df)
+        fig = processor.plot_boxplot()
+        return fig
+    except Exception as e:
+        return None
+
+
+def get_distribution_info(file):
+    """获取数据分布信息"""
+    if file is None:
+        return None
+    
+    try:
+        if file.name.endswith('.csv'):
+            df = pd.read_csv(file.name)
+        else:
+            df = pd.read_excel(file.name)
+        
+        processor = DataProcessor(df)
+        fig = processor.plot_distribution()
+        return fig
+    except Exception as e:
+        return None
+
+
+def get_correlation_info(file):
+    """获取相关性热力图"""
+    if file is None:
+        return None, None
+    
+    try:
+        if file.name.endswith('.csv'):
+            df = pd.read_csv(file.name)
+        else:
+            df = pd.read_excel(file.name)
+        
+        processor = DataProcessor(df)
+        fig = processor.plot_correlation_heatmap()
+        high_corr = processor.get_high_correlation_pairs()
+        
+        return fig, high_corr
+    except Exception as e:
+        return None, None
+
+
+def process_data(file, fill_strategy, outlier_method):
+    """执行数据预处理"""
+    global global_processor
+    
+    if file is None:
+        return None, "请先上传文件"
+    
+    try:
+        if file.name.endswith('.csv'):
+            df = pd.read_csv(file.name)
+        else:
+            df = pd.read_excel(file.name)
+        
+        processor = DataProcessor(df)
+        
+        # 缺失值处理
+        processor.fill_missing(strategy=fill_strategy)
+        
+        # 异常值处理
+        processor.handle_outliers(method=outlier_method)
+        
+        global_processor = processor
+        
+        # 生成处理报告
+        log = processor.get_processing_log()
+        report = f"✅ 数据预处理完成！\n\n处理步骤:\n"
+        report += "\n".join([f"• {item}" for item in log])
+        report += f"\n\n处理后数据: {processor.get_data().shape[0]} 行 × {processor.get_data().shape[1]} 列"
+        
+        return processor.get_data().head(20), report
+    except Exception as e:
+        return None, f"处理失败: {str(e)}"
+
+
+def download_processed_data():
+    """下载处理后的数据"""
+    global global_processor
+    
+    if global_processor is None:
+        return None
+    
+    # 保存到临时文件
+    output_path = "output/processed_data.csv"
+    global_processor.get_data().to_csv(output_path, index=False)
+    return output_path
 
 # 模型训练函数（使用自定义SVM）
 def train_model(
@@ -122,17 +267,53 @@ with gr.Blocks() as demo:
         # 左侧面板
         with gr.Column(scale=2):
             with gr.Tab("数据处理"):
-                # TODO
-                data_file = gr.File(
-                    label="上传数据文件（CSV/XLSX）",
-                    file_types=[".csv", ".xlsx"]
-                )
-                data_output = gr.DataFrame(
-                    label="数据预览",
-                    interactive=False,
-                )
-                preprocess_btn = gr.Button("数据预处理", variant="secondary")
-                preprocess_output = gr.Textbox()
+                with gr.Row():
+                    data_file = gr.File(
+                        label="上传数据文件（CSV/XLSX）",
+                        file_types=[".csv", ".xlsx"]
+                    )
+                    data_info = gr.Textbox(label="数据信息", lines=2)
+                
+                data_output = gr.DataFrame(label="数据预览", interactive=False)
+                
+                with gr.Accordion("数据分析", open=False):
+                    with gr.Tab("缺失值分析"):
+                        missing_btn = gr.Button("分析缺失值", size="sm")
+                        missing_info = gr.DataFrame(label="缺失值统计")
+                        missing_plot = gr.Plot(label="缺失值矩阵图")
+                    
+                    with gr.Tab("异常值分析"):
+                        outlier_btn = gr.Button("分析异常值", size="sm")
+                        outlier_plot = gr.Plot(label="箱线图")
+                    
+                    with gr.Tab("数据分布"):
+                        dist_btn = gr.Button("分析分布", size="sm")
+                        dist_plot = gr.Plot(label="分布图")
+                    
+                    with gr.Tab("相关性分析"):
+                        corr_btn = gr.Button("分析相关性", size="sm")
+                        corr_plot = gr.Plot(label="相关性热力图")
+                        high_corr_df = gr.DataFrame(label="高相关特征对 (|r| > 0.8)")
+                
+                gr.Markdown("### 数据预处理")
+                with gr.Row():
+                    fill_strategy = gr.Dropdown(
+                        choices=["auto", "median", "mean", "mode", "knn", "drop"],
+                        value="auto",
+                        label="缺失值处理策略"
+                    )
+                    outlier_method = gr.Dropdown(
+                        choices=["cap", "drop", "median"],
+                        value="cap",
+                        label="异常值处理方法"
+                    )
+                
+                with gr.Row():
+                    preprocess_btn = gr.Button("执行预处理", variant="primary")
+                    download_btn = gr.Button("下载处理后数据", variant="secondary")
+                
+                preprocess_output = gr.Textbox(label="处理报告", lines=6)
+                processed_file = gr.File(label="下载文件", visible=False)
             with gr.Tab("模型训练"):
                 train_file = gr.File(
                     label="上传训练文件（CSV/XLSX）",
@@ -299,7 +480,51 @@ with gr.Blocks() as demo:
                     
                 return "", None, new_history, img_cache
 
-    # 事件绑定
+    # ==================== 事件绑定 ====================
+    
+    # 数据处理事件
+    data_file.change(
+        fn=load_preview_data,
+        inputs=data_file,
+        outputs=[data_output, data_info]
+    )
+    
+    missing_btn.click(
+        fn=get_missing_info,
+        inputs=data_file,
+        outputs=[missing_info, missing_plot]
+    )
+    
+    outlier_btn.click(
+        fn=get_outlier_info,
+        inputs=data_file,
+        outputs=outlier_plot
+    )
+    
+    dist_btn.click(
+        fn=get_distribution_info,
+        inputs=data_file,
+        outputs=dist_plot
+    )
+    
+    corr_btn.click(
+        fn=get_correlation_info,
+        inputs=data_file,
+        outputs=[corr_plot, high_corr_df]
+    )
+    
+    preprocess_btn.click(
+        fn=process_data,
+        inputs=[data_file, fill_strategy, outlier_method],
+        outputs=[data_output, preprocess_output]
+    )
+    
+    download_btn.click(
+        fn=download_processed_data,
+        outputs=processed_file
+    )
+    
+    # 模型训练事件
     train_btn.click(
         fn=train_model,
         inputs=[
@@ -344,10 +569,70 @@ with gr.Blocks() as demo:
     )
 
 
+def setup_frpc():
+    """自动配置 frpc（从项目 bin 目录复制到 Gradio 缓存）"""
+    import shutil
+    from pathlib import Path
+    
+    # 项目 bin 目录中的 frpc
+    project_root = Path(__file__).parent.parent
+    src_frpc = project_root / "bin" / "frpc_linux_amd64_v0.3"
+    
+    # Gradio 缓存目录
+    gradio_cache = Path.home() / ".cache" / "huggingface" / "gradio" / "frpc"
+    dst_frpc = gradio_cache / "frpc_linux_amd64_v0.3"
+    
+    if src_frpc.exists():
+        gradio_cache.mkdir(parents=True, exist_ok=True)
+        if not dst_frpc.exists() or dst_frpc.stat().st_size != src_frpc.stat().st_size:
+            shutil.copy2(src_frpc, dst_frpc)
+            dst_frpc.chmod(0o755)
+            print(f"✅ frpc 已配置: {dst_frpc}")
+        return True
+    return False
+
+
 if __name__ == "__main__":
-    # demo.launch(share=False)
+    import sys
+    
+    PORT = 7860
+    
+    # 检查启动模式
+    use_ngrok = "--ngrok" in sys.argv
+    use_share = "--share" in sys.argv
+    
+    # 如果使用 share，自动配置 frpc
+    if use_share:
+        setup_frpc()
+    
+    print("=" * 50)
+    print("🏥 智能医疗系统启动中...")
+    print("=" * 50)
+    
+    public_url = None
+    
+    # 使用 ngrok 进行公网部署
+    if use_ngrok:
+        try:
+            from pyngrok import ngrok
+            # 如果有 authtoken，可以设置: ngrok.set_auth_token("YOUR_TOKEN")
+            public_url = ngrok.connect(PORT, "http")
+            print(f"✅ Ngrok 公网链接: {public_url}")
+        except Exception as e:
+            print(f"❌ Ngrok 启动失败: {e}")
+            print("提示: 可以在 https://ngrok.com 注册获取免费 token")
+    
+    print(f"📍 本地访问: http://localhost:{PORT}")
+    print(f"📍 局域网: http://0.0.0.0:{PORT}")
+    print("=" * 50)
+    print("启动参数:")
+    print("  --ngrok  使用 ngrok 创建公网链接")
+    print("  --share  使用 Gradio 内置分享(需网络支持)")
+    print("=" * 50)
+    
     demo.launch(
-        server_name="0.0.0.0",  # 关键：允许外部连接
-        server_port=7860,       # 指定端口（防止随机变动）
-        share=False             # 关闭公网分享
+        server_name="0.0.0.0",
+        server_port=PORT,
+        share=use_share,
+        show_error=True,
     )

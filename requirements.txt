@@ -4,7 +4,8 @@ scikit-learn==1.6.1
 matplotlib==3.10.1     
 seaborn==0.13.2     
 torch==2.6.0         
-gradio==5.20.0        
+gradio==5.20.0
+gradio_client
 streamlit==1.42.2    
 openai==1.13.3
 plotly==6.0.0
