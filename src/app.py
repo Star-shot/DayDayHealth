@@ -37,6 +37,110 @@ def load_preview_data(file):
         return None, f"加载失败: {str(e)}"
 
 
+def analyze_data(file):
+    """上传数据后自动分析（不执行预处理）"""
+    global global_processor, global_report
+    import os
+    
+    if file is None:
+        return "", "", None, None, None, None
+    
+    try:
+        if file.name.endswith('.csv'):
+            df = pd.read_csv(file.name)
+        else:
+            df = pd.read_excel(file.name)
+        
+        processor = DataProcessor(df)
+        global_processor = processor
+        
+        # 确保输出目录存在
+        os.makedirs("output/plots", exist_ok=True)
+        
+        # 生成四张分析图并保存
+        plot_paths = {}
+        
+        try:
+            missing_fig = processor.plot_missing_matrix()
+            missing_fig.savefig("output/plots/missing.png", dpi=100, bbox_inches='tight')
+            plot_paths['missing'] = "output/plots/missing.png"
+        except:
+            missing_fig = None
+            plot_paths['missing'] = None
+        
+        try:
+            outlier_fig = processor.plot_boxplot(normalize=True)
+            outlier_fig.savefig("output/plots/outlier.png", dpi=100, bbox_inches='tight')
+            plot_paths['outlier'] = "output/plots/outlier.png"
+        except:
+            outlier_fig = None
+            plot_paths['outlier'] = None
+        
+        try:
+            dist_fig = processor.plot_distribution()
+            dist_fig.savefig("output/plots/distribution.png", dpi=100, bbox_inches='tight')
+            plot_paths['distribution'] = "output/plots/distribution.png"
+        except:
+            dist_fig = None
+            plot_paths['distribution'] = None
+        
+        try:
+            corr_fig = processor.plot_correlation_heatmap()
+            corr_fig.savefig("output/plots/correlation.png", dpi=100, bbox_inches='tight')
+            plot_paths['correlation'] = "output/plots/correlation.png"
+        except:
+            corr_fig = None
+            plot_paths['correlation'] = None
+        
+        # 生成报告（带图片路径）
+        report = processor.generate_report()
+        report['plot_paths'] = plot_paths
+        global_report = report
+        
+        # 生成带图片的 Markdown 报告
+        md_with_images = generate_markdown_with_images(report, plot_paths)
+        report['markdown_with_images'] = md_with_images
+        
+        return (
+            md_with_images,
+            report['llm_prompt'],
+            missing_fig,
+            outlier_fig,
+            dist_fig,
+            corr_fig
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return f"分析失败: {str(e)}", "", None, None, None, None
+
+
+def generate_markdown_with_images(report: dict, plot_paths: dict) -> str:
+    """生成带图片的 Markdown 报告"""
+    md = report['markdown']
+    
+    # 在报告末尾添加图片部分
+    md += "\n\n## 📈 分析图表\n\n"
+    
+    if plot_paths.get('missing'):
+        md += "### 缺失值分析\n"
+        md += f"![缺失值分析](plots/missing.png)\n\n"
+    
+    if plot_paths.get('outlier'):
+        md += "### 异常值分析\n"
+        md += f"![异常值分析](plots/outlier.png)\n\n"
+    
+    if plot_paths.get('distribution'):
+        md += "### 数据分布\n"
+        md += f"![数据分布](plots/distribution.png)\n\n"
+    
+    if plot_paths.get('correlation'):
+        md += "### 相关性分析\n"
+        md += f"![相关性分析](plots/correlation.png)\n\n"
+    
+    return md
+
+
 def get_missing_info(file):
     """获取缺失值信息"""
     if file is None:
@@ -114,11 +218,12 @@ def get_correlation_info(file):
 
 
 def process_data(file, fill_strategy, outlier_method):
-    """执行数据预处理"""
+    """执行数据预处理并重新生成分析图表"""
     global global_processor, global_report
+    import os
     
     if file is None:
-        return None, "请先上传文件", "", ""
+        return None, "请先上传文件", "", "", None, None, None, None
     
     try:
         if file.name.endswith('.csv'):
@@ -126,18 +231,58 @@ def process_data(file, fill_strategy, outlier_method):
         else:
             df = pd.read_excel(file.name)
         
+        # 执行数据处理
         processor = DataProcessor(df)
-        
-        # 缺失值处理
         processor.fill_missing(strategy=fill_strategy)
-        
-        # 异常值处理
         processor.handle_outliers(method=outlier_method)
         
         global_processor = processor
         
+        # 确保输出目录存在
+        os.makedirs("output/plots", exist_ok=True)
+        
+        # 用处理后的数据生成分析图表
+        plot_paths = {}
+        
+        try:
+            missing_fig = processor.plot_missing_matrix()
+            missing_fig.savefig("output/plots/missing.png", dpi=100, bbox_inches='tight')
+            plot_paths['missing'] = "output/plots/missing.png"
+        except:
+            missing_fig = None
+            plot_paths['missing'] = None
+        
+        try:
+            outlier_fig = processor.plot_boxplot(normalize=True)
+            outlier_fig.savefig("output/plots/outlier.png", dpi=100, bbox_inches='tight')
+            plot_paths['outlier'] = "output/plots/outlier.png"
+        except:
+            outlier_fig = None
+            plot_paths['outlier'] = None
+        
+        try:
+            dist_fig = processor.plot_distribution()
+            dist_fig.savefig("output/plots/distribution.png", dpi=100, bbox_inches='tight')
+            plot_paths['distribution'] = "output/plots/distribution.png"
+        except:
+            dist_fig = None
+            plot_paths['distribution'] = None
+        
+        try:
+            corr_fig = processor.plot_correlation_heatmap()
+            corr_fig.savefig("output/plots/correlation.png", dpi=100, bbox_inches='tight')
+            plot_paths['correlation'] = "output/plots/correlation.png"
+        except:
+            corr_fig = None
+            plot_paths['correlation'] = None
+        
         # 生成完整分析报告
         report = processor.generate_report()
+        report['plot_paths'] = plot_paths
+        
+        # 生成带图片的 Markdown 报告
+        md_with_images = generate_markdown_with_images(report, plot_paths)
+        report['markdown_with_images'] = md_with_images
         global_report = report
         
         # 简短处理日志
@@ -149,11 +294,17 @@ def process_data(file, fill_strategy, outlier_method):
         return (
             processor.get_data().head(20), 
             brief_report, 
-            report['markdown'],
-            report['llm_prompt']
+            md_with_images,
+            report['llm_prompt'],
+            missing_fig,
+            outlier_fig,
+            dist_fig,
+            corr_fig
         )
     except Exception as e:
-        return None, f"处理失败: {str(e)}", "", ""
+        import traceback
+        traceback.print_exc()
+        return None, f"处理失败: {str(e)}", "", "", None, None, None, None
 
 
 # 全局报告存储
@@ -161,32 +312,133 @@ global_report = None
 
 
 def download_report():
-    """下载分析报告（Markdown 格式）"""
+    """下载分析报告（包含图片的 zip 包）"""
     global global_report
+    import zipfile
+    import shutil
     
     if global_report is None:
-        return None
+        return gr.File(visible=False)
     
     import os
     os.makedirs("output", exist_ok=True)
-    output_path = "output/data_analysis_report.md"
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(global_report['markdown'])
-    return output_path
+    
+    # 写入带图片路径的 Markdown
+    md_content = global_report.get('markdown_with_images', global_report['markdown'])
+    md_path = "output/data_analysis_report.md"
+    with open(md_path, 'w', encoding='utf-8') as f:
+        f.write(md_content)
+    
+    # 创建 zip 包（包含报告和图片）
+    zip_path = "output/data_analysis_report.zip"
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        # 添加 Markdown 报告
+        zipf.write(md_path, "data_analysis_report.md")
+        
+        # 添加图片
+        plots_dir = "output/plots"
+        if os.path.exists(plots_dir):
+            for img_file in os.listdir(plots_dir):
+                if img_file.endswith('.png'):
+                    zipf.write(os.path.join(plots_dir, img_file), f"plots/{img_file}")
+    
+    return gr.File(value=zip_path, visible=True)
 
 
-def send_to_llm(llm_prompt, model_id, history):
-    """将报告发送给 LLM 进行分析"""
+def prepare_for_llm(llm_prompt):
+    """准备发送给 LLM 的内容，填入输入框供用户确认"""
+    global global_report
+    import os
+    
     if not llm_prompt:
-        history = history or []
-        history.append({"role": "assistant", "content": "⚠️ 请先执行数据预处理以生成分析报告"})
-        return history
+        return "⚠️ 请先上传数据或执行预处理以生成分析报告", None
     
-    # 添加用户消息
-    history = history or []
-    history.append({"role": "user", "content": f"📊 数据分析请求:\n\n{llm_prompt}"})
+    # 准备图片路径（合并成一张拼接图）
+    image_path = None
+    if global_report and global_report.get('plot_paths'):
+        # 尝试拼接四张图为一张
+        try:
+            from PIL import Image
+            
+            plot_paths = global_report['plot_paths']
+            images = []
+            for key in ['missing', 'outlier', 'distribution', 'correlation']:
+                path = plot_paths.get(key)
+                if path and os.path.exists(path):
+                    images.append(Image.open(path))
+            
+            if images:
+                # 创建 2x2 拼接图
+                widths = [img.width for img in images]
+                heights = [img.height for img in images]
+                max_w = max(widths) if widths else 400
+                max_h = max(heights) if heights else 300
+                
+                # 创建画布
+                combined = Image.new('RGB', (max_w * 2, max_h * 2), 'white')
+                
+                positions = [(0, 0), (max_w, 0), (0, max_h), (max_w, max_h)]
+                for i, img in enumerate(images[:4]):
+                    # 调整图片大小
+                    img_resized = img.resize((max_w, max_h), Image.Resampling.LANCZOS)
+                    combined.paste(img_resized, positions[i])
+                
+                # 保存拼接图
+                os.makedirs("output/plots", exist_ok=True)
+                image_path = "output/plots/combined_analysis.png"
+                combined.save(image_path)
+        except Exception as e:
+            print(f"图片拼接失败: {e}")
+            # 如果拼接失败，使用第一张图
+            for key in ['correlation', 'distribution', 'outlier', 'missing']:
+                path = global_report.get('plot_paths', {}).get(key)
+                if path and os.path.exists(path):
+                    image_path = path
+                    break
     
-    return history
+    # 返回文本和图片路径，填入输入框
+    text = f"📊 数据分析请求:\n\n{llm_prompt}"
+    return text, image_path
+
+
+def download_chat_history(history):
+    """下载对话历史"""
+    import os
+    import json
+    from datetime import datetime
+    
+    if not history:
+        return gr.File(visible=False)
+    
+    os.makedirs("output", exist_ok=True)
+    
+    # 生成 Markdown 格式的对话记录
+    md_content = "# 💬 AI 对话记录\n\n"
+    md_content += f"**导出时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    md_content += "---\n\n"
+    
+    for msg in history:
+        role = msg.get('role', 'unknown')
+        content = msg.get('content', '')
+        
+        if role == 'user':
+            md_content += f"### 👤 用户\n\n{content}\n\n"
+        elif role == 'assistant':
+            md_content += f"### 🤖 AI 助手\n\n{content}\n\n"
+        
+        md_content += "---\n\n"
+    
+    # 保存 Markdown 文件
+    output_path = "output/chat_history.md"
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(md_content)
+    
+    # 同时保存 JSON 格式（便于程序读取）
+    json_path = "output/chat_history.json"
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
+    
+    return gr.File(value=output_path, visible=True)
 
 
 def download_processed_data():
@@ -194,12 +446,16 @@ def download_processed_data():
     global global_processor
     
     if global_processor is None:
-        return None
+        return gr.File(visible=False)
     
-    # 保存到临时文件
+    import os
+    # 确保目录存在
+    os.makedirs("output", exist_ok=True)
+    
+    # 保存到文件
     output_path = "output/processed_data.csv"
     global_processor.get_data().to_csv(output_path, index=False)
-    return output_path
+    return gr.File(value=output_path, visible=True)
 
 # 模型训练函数（使用自定义SVM）
 def train_model(
@@ -350,21 +606,36 @@ with gr.Blocks() as demo:
                         label="异常值处理方法"
                     )
                 
-                with gr.Row():
-                    preprocess_btn = gr.Button("执行预处理", variant="primary")
-                    download_btn = gr.Button("下载处理后数据", variant="secondary")
-                
+                preprocess_btn = gr.Button("执行预处理", variant="primary")
                 preprocess_output = gr.Textbox(label="处理日志", lines=4)
-                processed_file = gr.File(label="下载文件", visible=False)
                 
-                with gr.Accordion("📊 数据分析报告", open=False):
-                    report_markdown = gr.Markdown(label="分析报告", value="*执行预处理后自动生成报告*")
-                    
+                with gr.Accordion("📊 数据分析报告", open=True):
                     with gr.Row():
-                        download_report_btn = gr.Button("📥 下载报告", variant="secondary", size="sm")
+                        download_data_btn = gr.Button("📥 下载数据", variant="secondary", size="sm")
+                        download_report_btn = gr.Button("📄 下载报告", variant="secondary", size="sm")
                         send_to_llm_btn = gr.Button("🤖 发送给AI分析", variant="primary", size="sm")
                     
-                    report_file = gr.File(label="报告文件", visible=False)
+                    with gr.Row():
+                        processed_file = gr.File(label="处理后数据", visible=False)
+                        report_file = gr.File(label="分析报告", visible=False)
+                    
+                    # 四张分析图表
+                    with gr.Row():
+                        with gr.Column():
+                            auto_missing_plot = gr.Plot(label="缺失值分析")
+                        with gr.Column():
+                            auto_outlier_plot = gr.Plot(label="异常值分析")
+                    
+                    with gr.Row():
+                        with gr.Column():
+                            auto_dist_plot = gr.Plot(label="数据分布")
+                        with gr.Column():
+                            auto_corr_plot = gr.Plot(label="相关性分析")
+                    
+                    # 文字报告
+                    with gr.Accordion("📝 详细报告", open=False):
+                        report_markdown = gr.Markdown(label="分析报告", value="*执行预处理后自动生成报告*")
+                    
                     llm_prompt_state = gr.State(value="")
             with gr.Tab("模型训练"):
                 train_file = gr.File(
@@ -483,8 +754,11 @@ with gr.Blocks() as demo:
                 choices=["疾病诊断", "健康管理", "营养指导"]
             )
             provider_info = gr.Markdown(value="**当前模型**: qwen / qwen-max")
-            send_btn = gr.Button("发送", variant="primary", size='sm')
-            clear_btn = gr.ClearButton([msg, chatbot, img_input], size='sm')
+            with gr.Row():
+                send_btn = gr.Button("发送", variant="primary", size='sm')
+                clear_btn = gr.ClearButton([msg, chatbot, img_input], size='sm')
+                download_history_btn = gr.Button("📥 导出对话", variant="secondary", size='sm')
+            chat_history_file = gr.File(label="对话记录", visible=False)
             
             def update_provider_info(agent_id):
                 """更新显示的提供商信息"""
@@ -534,11 +808,22 @@ with gr.Blocks() as demo:
 
     # ==================== 事件绑定 ====================
     
-    # 数据处理事件
+    # 数据处理事件 - 上传后自动预览并分析
     data_file.change(
         fn=load_preview_data,
         inputs=data_file,
         outputs=[data_output, data_info]
+    ).then(
+        fn=analyze_data,
+        inputs=data_file,
+        outputs=[
+            report_markdown,
+            llm_prompt_state,
+            auto_missing_plot,
+            auto_outlier_plot,
+            auto_dist_plot,
+            auto_corr_plot
+        ]
     )
     
     missing_btn.click(
@@ -568,10 +853,19 @@ with gr.Blocks() as demo:
     preprocess_btn.click(
         fn=process_data,
         inputs=[data_file, fill_strategy, outlier_method],
-        outputs=[data_output, preprocess_output, report_markdown, llm_prompt_state]
+        outputs=[
+            data_output, 
+            preprocess_output, 
+            report_markdown, 
+            llm_prompt_state,
+            auto_missing_plot,
+            auto_outlier_plot,
+            auto_dist_plot,
+            auto_corr_plot
+        ]
     )
     
-    download_btn.click(
+    download_data_btn.click(
         fn=download_processed_data,
         outputs=processed_file
     )
@@ -581,15 +875,11 @@ with gr.Blocks() as demo:
         outputs=report_file
     )
     
-    # 发送给 LLM 分析：先添加消息到聊天，然后触发 LLM 响应
+    # 发送给 LLM 分析：填入输入框和图片框，让用户确认后发送
     send_to_llm_btn.click(
-        fn=send_to_llm,
-        inputs=[llm_prompt_state, model_id, chatbot],
-        outputs=chatbot
-    ).then(
-        fn=chat,
-        inputs=[chatbot, model_id, image_cache],
-        outputs=chatbot
+        fn=prepare_for_llm,
+        inputs=[llm_prompt_state],
+        outputs=[msg, img_input]
     )
     
     # 模型训练事件
@@ -634,6 +924,13 @@ with gr.Blocks() as demo:
     # 按钮发送
     send_btn.click(user, [msg, img_input, chatbot, image_cache], [msg, img_input, chatbot, image_cache]).then(
         chat, [chatbot, model_id, image_cache], chatbot
+    )
+    
+    # 导出对话历史
+    download_history_btn.click(
+        fn=download_chat_history,
+        inputs=chatbot,
+        outputs=chat_history_file
     )
 
 
