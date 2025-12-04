@@ -115,7 +115,7 @@ def toggle_params(model_type):
     }     
         
 # 界面布局
-with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 1200px !important}") as demo:
+with gr.Blocks() as demo:
     gr.Markdown("# 智能医疗系统")
     
     with gr.Row():
@@ -230,21 +230,51 @@ with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 1200px
             chatbot = gr.Chatbot(
                 label="智能助手",
                 height=400,
-                bubble_full_width=False,
+                # bubble_full_width=False,
             )
-            msg = gr.Textbox(
-                label="输入消息",
-                placeholder="输入问题后按回车发送",
-                max_lines=3
-            )
+            with gr.Row():
+                msg = gr.Textbox(
+                    label="输入消息",
+                    placeholder="输入问题后按回车发送",
+                    max_lines=3,
+                    scale=4
+                )
+                img_input = gr.Image(
+                    label="上传图片",
+                    type="filepath",
+                    scale=1
+                )
             model_id = gr.Dropdown(
-                label="模型ID",
-                value="医疗LLM",
-                choices=["医疗LLM", "金融LLM", "教育LLM"]
+                label="医疗智能体",
+                value="健康管理",
+                choices=["疾病诊断", "健康管理", "营养指导"]
             )
-            clear_btn = gr.ClearButton([msg, chatbot], size='sm')
-            def user(user_message, history):
-                return "", history + [[user_message, None]]
+            send_btn = gr.Button("发送", variant="primary", size='sm')
+            clear_btn = gr.ClearButton([msg, chatbot, img_input], size='sm')
+            
+            # 用于存储图片路径，供 API 调用使用
+            image_cache = gr.State(None)
+            
+            def user(user_message, image, history, img_cache):
+                """处理用户输入（文本+图片）"""
+                if not user_message and not image:
+                    return "", None, history, img_cache
+                
+                new_history = list(history)
+                
+                # 构建显示文本
+                if image:
+                    text = user_message or "请分析这张图片"
+                    display_text = f"📷 [已上传图片]\n{text}"
+                    img_cache = image  # 缓存图片路径供 API 使用
+                else:
+                    display_text = user_message
+                    img_cache = None
+                
+                # 添加用户消息（纯文本格式，Gradio 兼容）
+                new_history.append({"role": "user", "content": display_text})
+                    
+                return "", None, new_history, img_cache
 
     # 事件绑定
     train_btn.click(
@@ -281,11 +311,20 @@ with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 1200px
         outputs=pred_output
     )
 
-    msg.submit(user, [msg, chatbot], [msg, chatbot]).then(
-    chat, [msg, chatbot, model_id], chatbot
-)
+    # 文本回车发送
+    msg.submit(user, [msg, img_input, chatbot, image_cache], [msg, img_input, chatbot, image_cache]).then(
+        chat, [chatbot, model_id, image_cache], chatbot
+    )
+    # 按钮发送
+    send_btn.click(user, [msg, img_input, chatbot, image_cache], [msg, img_input, chatbot, image_cache]).then(
+        chat, [chatbot, model_id, image_cache], chatbot
+    )
 
 
 if __name__ == "__main__":
-    demo.launch()
-
+    # demo.launch(share=False)
+    demo.launch(
+        server_name="0.0.0.0",  # 关键：允许外部连接
+        server_port=7860,       # 指定端口（防止随机变动）
+        share=False             # 关闭公网分享
+    )
