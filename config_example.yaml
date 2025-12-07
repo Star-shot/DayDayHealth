@@ -1,0 +1,59 @@
+# 智能医疗系统 - LLM 配置文件示例
+# 复制此文件为 config.yaml 并填入您的 API Key
+
+# 当前使用的默认提供商 (可选: kimi, qwen, deepseek)
+default_provider: "kimi"
+
+# LLM 提供商配置
+llm_providers:
+  # Kimi (Moonshot AI) - 支持视觉多模态
+  # 官网: https://platform.moonshot.cn/
+  kimi:
+    api_key: "sk-o3UuxMtGKdGBRrUtKIsyPmN4j4BQ7DkyRSBEqsOkmeY6qFuo"
+    base_url: "https://api.moonshot.cn/v1"
+    models:
+      default: "moonshot-v1-128k-vision-preview"  # 默认模型（支持视觉）
+      vision: "moonshot-v1-128k-vision-preview"   # 视觉模型
+      chat: "moonshot-v1-8k"                      # 普通对话模型
+      long_context: "moonshot-v1-128k"            # 长上下文模型
+
+  # 通义千问 (Qwen) - 阿里云
+  # 官网: https://dashscope.console.aliyun.com/
+  qwen:
+    api_key: "sk-3e0dbe4596d7464ca4b7310da5cf9fbd"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    models:
+      default: "qwen-max"
+      vision: "qwen-vl-max"                       # 视觉模型
+      chat: "qwen-turbo"                          # 快速对话
+      long_context: "qwen-long"                   # 长上下文
+
+  # DeepSeek
+  # 官网: https://platform.deepseek.com/
+  deepseek:
+    api_key: "sk-cb13b0f9578b4bfbbabb4c6be508021a"
+    base_url: "https://api.deepseek.com/v1"
+    models:
+      default: "deepseek-chat"
+      vision: "deepseek-chat"                     # DeepSeek 暂无专用视觉模型
+      chat: "deepseek-chat"
+      reasoner: "deepseek-reasoner"               # 推理模型
+
+# 智能体模型映射
+# 可为不同智能体指定不同的提供商和模型类型
+agent_models:
+  疾病诊断:
+    provider: "kimi"       # 使用 Kimi
+    model: "vision"        # 使用视觉模型，支持医学影像分析
+  健康管理:
+    provider: "qwen"
+    model: "default"
+  营养指导:
+    provider: "deepseek"
+    model: "chat"
+
+# 使用说明:
+# 1. 复制此文件为 config.yaml
+# 2. 填入对应提供商的 API Key
+# 3. 修改 default_provider 选择默认提供商
+# 4. 可在 agent_models 中为不同智能体指定不同模型

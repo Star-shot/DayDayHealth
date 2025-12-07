@@ -14,6 +14,29 @@ global_model = None
 global_processor = None
 global_report = None
 
+# 样例数据路径
+EXAMPLE_FILES = {
+    "糖尿病分类数据": "../example/Diabetes Classification.csv",
+    "体检数据": "../example/medical_examination.csv",
+}
+
+
+# ==================== 样例数据选择 ====================
+
+def select_example_data(example_name):
+    """选择样例数据"""
+    if example_name == "自定义上传" or example_name not in EXAMPLE_FILES:
+        return gr.File(value=None)
+    
+    file_path = EXAMPLE_FILES[example_name]
+    # 转换为绝对路径
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    abs_path = os.path.normpath(os.path.join(base_dir, file_path))
+    
+    if os.path.exists(abs_path):
+        return gr.File(value=abs_path)
+    return gr.File(value=None)
+
 
 # ==================== 数据加载与分析 ====================
 
@@ -393,6 +416,53 @@ def download_processed_data():
     output_path = "output/processed_data.csv"
     global_processor.get_data().to_csv(output_path, index=False)
     return gr.File(value=output_path, visible=True)
+
+
+def send_to_training(encode_strategy: str = 'auto'):
+    """
+    将处理后的数据传递到模型训练模块
+    
+    Args:
+        encode_strategy: 分类变量编码策略 (auto/label/onehot)
+    """
+    global global_processor
+    
+    if global_processor is None:
+        return gr.File(value=None), "⚠️ 请先执行数据预处理"
+    
+    os.makedirs("output", exist_ok=True)
+    
+    # 复制一份处理器用于编码（不影响原数据）
+    from utils.data_process import DataProcessor
+    df_copy = global_processor.get_data().copy()
+    encoder = DataProcessor(df_copy)
+    
+    # 检查是否有需要编码的分类列
+    cat_cols = encoder.get_categorical_columns()
+    encode_info = ""
+    
+    if cat_cols:
+        # 执行分类变量编码
+        encoder.encode_categorical(strategy=encode_strategy)
+        encode_log = encoder.get_processing_log()
+        encode_info = f"\n📊 编码信息: {encode_log[-1] if encode_log else '无'}"
+    
+    # 保存编码后的数据
+    output_path = "output/processed_data_for_training.csv"
+    encoder.get_data().to_csv(output_path, index=False)
+    
+    # 数据信息
+    df = encoder.get_data()
+    info = f"✅ 已加载预处理数据\n"
+    info += f"数据形状: {df.shape[0]} 行 × {df.shape[1]} 列"
+    
+    if cat_cols:
+        info += f"\n原分类列: {list(cat_cols.keys())}"
+        info += encode_info
+    else:
+        info += "\n（无需编码的分类列）"
+    
+    return gr.File(value=output_path), info
 
 
 # ==================== LLM 相关 ====================

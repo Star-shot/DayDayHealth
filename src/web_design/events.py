@@ -15,6 +15,13 @@ def setup_events(components, handlers):
     """
     # ==================== 数据处理事件 ====================
     
+    # 样例数据选择
+    components['example_selector'].change(
+        fn=handlers['select_example_data'],
+        inputs=components['example_selector'],
+        outputs=components['data_file']
+    )
+    
     # 上传数据后自动预览并分析
     components['data_file'].change(
         fn=handlers['load_preview_data'],
@@ -96,7 +103,21 @@ def setup_events(components, handlers):
         outputs=[components['msg'], components['img_input']]
     )
     
+    # 传递到模型训练（带编码策略）
+    components['send_to_train_btn'].click(
+        fn=handlers['send_to_training'],
+        inputs=[components['encode_strategy']],
+        outputs=[components['train_file'], components['train_output']]
+    )
+    
     # ==================== 模型训练事件 ====================
+    
+    # 切分方式变化时切换显示
+    components['split_method'].change(
+        fn=handlers['toggle_split_params'],
+        inputs=components['split_method'],
+        outputs=[components['test_size'], components['k_folds']]
+    )
     
     # 模型参数切换
     components['model_choice'].change(
@@ -109,11 +130,15 @@ def setup_events(components, handlers):
         ]
     )
     
-    # 训练按钮
+    # 训练按钮（训练完成后自动评估）
     components['train_btn'].click(
         fn=handlers['train_model'],
         inputs=[
-            components['train_file'], 
+            components['train_file'],
+            components['split_method'],
+            components['test_size'],
+            components['k_folds'],
+            components['random_seed'],
             components['model_choice'],
             components['rf_n_estimators'], 
             components['rf_max_depth'], 
@@ -126,15 +151,27 @@ def setup_events(components, handlers):
             components['lr_solver']
         ],
         outputs=components['train_output']
+    ).then(
+        fn=handlers['evaluate_model'],
+        inputs=None,  # 使用训练时保存的测试集
+        outputs=[
+            components['eval_status'],
+            components['eval_metrics'],
+            components['roc_curve_plot'], 
+            components['pr_curve_plot'], 
+            components['confusion_matrix_plot']
+        ]
     )
     
     # ==================== 模型评估事件 ====================
     
+    # 手动评估按钮
     components['eval_btn'].click(
         fn=handlers['evaluate_model'],
         inputs=components['eval_file'],
         outputs=[
-            components['dataframe_component'], 
+            components['eval_status'],
+            components['eval_metrics'],
             components['roc_curve_plot'], 
             components['pr_curve_plot'], 
             components['confusion_matrix_plot']

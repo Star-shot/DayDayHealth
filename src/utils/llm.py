@@ -256,3 +256,5 @@ def chat(history: list, model_id: str, image_cache: str = None) -> Generator[lis
     except Exception as e:
         yield history + [{"role": "assistant", "content": f"错误: {str(e)}"}]
 
+
+

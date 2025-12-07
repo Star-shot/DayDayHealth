@@ -5,15 +5,30 @@ UI 布局模块
 import gradio as gr
 
 
+# 样例数据路径
+EXAMPLE_FILES = {
+    "糖尿病分类数据": "../example/Diabetes Classification.csv",
+    "体检数据": "../example/medical_examination.csv",
+}
+
+
 def create_data_processing_tab():
     """创建数据处理标签页"""
     with gr.Tab("数据处理"):
         with gr.Row():
+            example_selector = gr.Dropdown(
+                label="选择样例数据",
+                choices=["自定义上传"] + list(EXAMPLE_FILES.keys()),
+                value="糖尿病分类数据",
+                scale=1
+            )
             data_file = gr.File(
                 label="上传数据文件（CSV/XLSX）",
-                file_types=[".csv", ".xlsx"]
+                file_types=[".csv", ".xlsx"],
+                value="../example/Diabetes Classification.csv",
+                scale=2
             )
-            data_info = gr.Textbox(label="数据信息", lines=2)
+            data_info = gr.Textbox(label="数据信息", lines=2, scale=1)
         
         data_output = gr.DataFrame(label="数据预览", interactive=False)
         
@@ -59,6 +74,16 @@ def create_data_processing_tab():
                 send_to_llm_btn = gr.Button("🤖 发送给AI分析", variant="primary", size="sm")
             
             with gr.Row():
+                encode_strategy = gr.Dropdown(
+                    choices=["auto", "label", "onehot"],
+                    value="auto",
+                    label="分类变量编码策略",
+                    info="auto: 自动选择 | label: 标签编码 | onehot: 独热编码",
+                    scale=2
+                )
+                send_to_train_btn = gr.Button("🚀 传递到模型训练", variant="primary", size="sm", scale=1)
+            
+            with gr.Row():
                 processed_file = gr.File(label="处理后数据", visible=False)
                 report_file = gr.File(label="分析报告", visible=False)
             
@@ -82,6 +107,7 @@ def create_data_processing_tab():
             llm_prompt_state = gr.State(value="")
     
     return {
+        'example_selector': example_selector,
         'data_file': data_file,
         'data_info': data_info,
         'data_output': data_output,
@@ -102,6 +128,8 @@ def create_data_processing_tab():
         'download_data_btn': download_data_btn,
         'download_report_btn': download_report_btn,
         'send_to_llm_btn': send_to_llm_btn,
+        'encode_strategy': encode_strategy,
+        'send_to_train_btn': send_to_train_btn,
         'processed_file': processed_file,
         'report_file': report_file,
         'auto_missing_plot': auto_missing_plot,
@@ -120,6 +148,37 @@ def create_model_training_tab():
             label="上传训练文件（CSV/XLSX）",
             file_types=[".csv", ".xlsx"]
         )
+        
+        # 数据切分设置
+        gr.Markdown("### 📊 数据切分设置")
+        with gr.Row():
+            split_method = gr.Radio(
+                choices=["简单切分", "K折交叉验证"],
+                value="简单切分",
+                label="切分方式",
+                scale=2
+            )
+            test_size = gr.Slider(
+                0.1, 0.4, value=0.2, step=0.05,
+                label="测试集比例",
+                info="仅简单切分时有效",
+                scale=1
+            )
+            k_folds = gr.Slider(
+                3, 10, value=5, step=1,
+                label="K折数",
+                info="仅交叉验证时有效",
+                visible=False,
+                scale=1
+            )
+            random_seed = gr.Number(
+                value=42,
+                label="随机种子",
+                precision=0,
+                scale=1
+            )
+        
+        gr.Markdown("### 🤖 模型选择")
         model_choice = gr.Dropdown(
             choices=["Random Forest", "SVM", "Logistic Regression"],
             label="选择模型",
@@ -165,11 +224,16 @@ def create_model_training_tab():
         train_output = gr.Textbox(
             label="训练结果",
             interactive=False,
+            lines=8,
             placeholder="训练结果将显示在此处..."
         )
     
     return {
         'train_file': train_file,
+        'split_method': split_method,
+        'test_size': test_size,
+        'k_folds': k_folds,
+        'random_seed': random_seed,
         'model_choice': model_choice,
         'rf_params': rf_params,
         'rf_n_estimators': rf_n_estimators,
@@ -191,20 +255,32 @@ def create_model_training_tab():
 def create_model_eval_tab():
     """创建模型评估标签页"""
     with gr.Tab("模型评估"):
+        eval_status = gr.Markdown(
+            value="💡 *训练模型后将自动使用测试集评估，或上传自定义评估数据*"
+        )
         eval_file = gr.File(
-            label="上传评估文件（CSV/XLSX）",
+            label="上传评估文件（可选，留空则使用训练时的测试集）",
             file_types=[".csv", ".xlsx"]
         )
-        eval_btn = gr.Button("开始评估", variant="secondary")
-        dataframe_component = gr.DataFrame(label="模型指标")
+        eval_btn = gr.Button("手动评估", variant="secondary")
+        
+        # 评估指标表格
+        eval_metrics = gr.Dataframe(
+            label="评估指标",
+            headers=["指标", "值"],
+            interactive=False
+        )
+        
+        # 可视化图表（纵向排列）
         roc_curve_plot = gr.Plot(label="ROC曲线")
         pr_curve_plot = gr.Plot(label="PR曲线")
         confusion_matrix_plot = gr.Plot(label="混淆矩阵")
     
     return {
+        'eval_status': eval_status,
         'eval_file': eval_file,
         'eval_btn': eval_btn,
-        'dataframe_component': dataframe_component,
+        'eval_metrics': eval_metrics,
         'roc_curve_plot': roc_curve_plot,
         'pr_curve_plot': pr_curve_plot,
         'confusion_matrix_plot': confusion_matrix_plot,

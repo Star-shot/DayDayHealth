@@ -560,6 +560,97 @@ class DataProcessor:
         
         return self
     
+    def encode_categorical(self, strategy: str = 'auto', 
+                           columns: List[str] = None,
+                           target_column: str = None) -> 'DataProcessor':
+        """
+        编码分类变量（字符串类型转换为数值）
+        
+        Args:
+            strategy: 编码策略
+                - 'auto': 自动选择（唯一值≤2用label，3-10用onehot，>10用label）
+                - 'label': 标签编码（0,1,2,3...）
+                - 'onehot': 独热编码（每个类别一列）
+                - 'target': 目标编码（用目标变量均值替换，需要target_column）
+            columns: 要编码的列，None表示所有字符串/对象类型列
+            target_column: 目标列名（仅target编码需要）
+            
+        Returns:
+            self，支持链式调用
+        """
+        from sklearn.preprocessing import LabelEncoder
+        
+        # 获取需要编码的列
+        if columns is None:
+            columns = self.df.select_dtypes(include=['object', 'category']).columns.tolist()
+            # 排除目标列
+            if target_column and target_column in columns:
+                columns.remove(target_column)
+        
+        if not columns:
+            self.processing_log.append("没有需要编码的分类列")
+            return self
+        
+        encoded_info = []
+        
+        for col in columns:
+            unique_count = self.df[col].nunique()
+            
+            # 确定使用的策略
+            if strategy == 'auto':
+                if unique_count <= 2:
+                    col_strategy = 'label'
+                elif unique_count <= 10:
+                    col_strategy = 'onehot'
+                else:
+                    col_strategy = 'label'  # 高基数用 label，避免维度爆炸
+            else:
+                col_strategy = strategy
+            
+            # 执行编码
+            if col_strategy == 'label':
+                le = LabelEncoder()
+                # 处理缺失值
+                mask = self.df[col].notna()
+                self.df.loc[mask, col] = le.fit_transform(self.df.loc[mask, col].astype(str))
+                self.df[col] = pd.to_numeric(self.df[col], errors='coerce')
+                encoded_info.append(f"'{col}' (Label, {unique_count}类)")
+                
+            elif col_strategy == 'onehot':
+                # 独热编码
+                dummies = pd.get_dummies(self.df[col], prefix=col, dummy_na=False)
+                self.df = pd.concat([self.df.drop(col, axis=1), dummies], axis=1)
+                encoded_info.append(f"'{col}' (OneHot, {unique_count}类→{len(dummies.columns)}列)")
+                
+            elif col_strategy == 'target' and target_column:
+                # 目标编码
+                if target_column in self.df.columns:
+                    target_mean = self.df.groupby(col)[target_column].mean()
+                    self.df[col] = self.df[col].map(target_mean)
+                    encoded_info.append(f"'{col}' (Target, {unique_count}类)")
+                else:
+                    # fallback to label
+                    le = LabelEncoder()
+                    mask = self.df[col].notna()
+                    self.df.loc[mask, col] = le.fit_transform(self.df.loc[mask, col].astype(str))
+                    self.df[col] = pd.to_numeric(self.df[col], errors='coerce')
+                    encoded_info.append(f"'{col}' (Label-fallback, {unique_count}类)")
+        
+        if encoded_info:
+            self.processing_log.append(f"分类变量编码: {', '.join(encoded_info)}")
+        
+        return self
+    
+    def get_categorical_columns(self) -> Dict[str, int]:
+        """
+        获取所有分类列及其唯一值数量
+        
+        Returns:
+            {列名: 唯一值数量}
+        """
+        cat_cols = self.df.select_dtypes(include=['object', 'category']).columns
+        return {col: self.df[col].nunique() for col in cat_cols}
+    
     # ==================== 3. 数据分布校正 ====================
     
     def plot_distribution(self, columns: List[str] = None, figsize: Tuple[int, int] = (14, 10),
