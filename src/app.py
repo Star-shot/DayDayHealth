@@ -44,6 +44,8 @@ from web_design import create_layout, setup_events
 # 全局变量
 _global_model = None
 _global_test_data = None  # 保存测试集 (X_test, y_test)
+_global_feature_cols = None  # 保存训练时使用的特征列名
+_global_label_col = None  # 保存标签列名
 
 
 def get_file_columns(file):
@@ -71,7 +73,7 @@ def get_file_columns(file):
 
 
 def train_model(
-    file,
+    file, 
     feature_cols,
     label_col,
     split_method,
@@ -90,7 +92,7 @@ def train_model(
     lr_solver="lbfgs"
 ):
     """训练模型（支持自定义特征列和标签列）"""
-    global _global_model, _global_test_data
+    global _global_model, _global_test_data, _global_feature_cols, _global_label_col
     from sklearn.model_selection import cross_val_score, StratifiedKFold
     import numpy as np
     
@@ -120,14 +122,22 @@ def train_model(
             if valid_features:
                 X = df[valid_features].values
                 feature_info = f"已选择 {len(valid_features)} 个特征"
+                _global_feature_cols = valid_features  # 保存特征列名
             else:
                 # 使用除标签外的所有列
-                X = df.drop(columns=[label_col]).values
+                valid_features = [c for c in df.columns if c != label_col]
+                X = df[valid_features].values
                 feature_info = f"使用全部 {X.shape[1]} 个特征（默认）"
+                _global_feature_cols = valid_features
         else:
             # 使用除标签外的所有列
-            X = df.drop(columns=[label_col]).values
+            valid_features = [c for c in df.columns if c != label_col]
+            X = df[valid_features].values
             feature_info = f"使用全部 {X.shape[1]} 个特征（默认）"
+            _global_feature_cols = valid_features
+        
+        # 保存标签列名
+        _global_label_col = label_col
         
         random_seed = int(random_seed) if random_seed else 42
         
@@ -244,24 +254,80 @@ def train_model(
 
 
 def make_prediction(pred_file):
-    """批量预测"""
-    global _global_model
+    """
+    批量预测
+    - 使用训练时的特征列
+    - 如果没有上传文件，使用测试集数据
+    """
+    global _global_model, _global_test_data, _global_feature_cols, _global_label_col
     
     if _global_model is None:
-        return "⚠️ 请先训练模型！"
+        return pd.DataFrame({"提示": ["⚠️ 请先训练模型！"]})
     
     try:
-        X_pred, _ = load_data(pred_file.name)
+        # 确定预测数据来源
+        if pred_file is not None:
+            # 使用上传的文件
+            if pred_file.name.endswith('.csv'):
+                df = pd.read_csv(pred_file.name)
+            else:
+                df = pd.read_excel(pred_file.name)
+            
+            # 使用训练时的特征列（如果有）
+            if _global_feature_cols:
+                # 检查哪些特征列存在
+                available_cols = [c for c in _global_feature_cols if c in df.columns]
+                if available_cols:
+                    X_pred = df[available_cols].values
+                    if len(available_cols) < len(_global_feature_cols):
+                        missing = set(_global_feature_cols) - set(available_cols)
+                        print(f"警告: 缺少特征列 {missing}")
+                else:
+                    # 如果没有匹配的特征列，尝试去掉标签列
+                    if _global_label_col and _global_label_col in df.columns:
+                        X_pred = df.drop(columns=[_global_label_col]).values
+                    else:
+                        X_pred = df.values
+            else:
+                # 没有保存特征列，去掉标签列（如果存在）
+                if _global_label_col and _global_label_col in df.columns:
+                    X_pred = df.drop(columns=[_global_label_col]).values
+                else:
+                    X_pred = df.values
+            
+            data_source = "上传文件"
+        
+        elif _global_test_data is not None:
+            # 使用测试集数据
+            X_pred, y_true = _global_test_data
+            data_source = "测试集"
+        
+        else:
+            return pd.DataFrame({"提示": ["⚠️ 请上传预测文件或先训练模型"]})
+        
+        # 执行预测
         predictions = _global_model.predict(X_pred)
         
-        return pd.DataFrame({
-            '样本序号': range(1, len(predictions)+1),
+        # 构建结果 DataFrame
+        result_df = pd.DataFrame({
+            '样本序号': range(1, len(predictions) + 1),
             '预测结果': predictions
         })
+        
+        # 如果使用测试集，添加真实标签用于对比
+        if pred_file is None and _global_test_data is not None:
+            _, y_true = _global_test_data
+            result_df['真实标签'] = y_true
+            result_df['是否正确'] = (predictions == y_true).astype(str)
+            result_df['是否正确'] = result_df['是否正确'].replace({'True': '✓', 'False': '✗'})
+        
+        return result_df
     
     except Exception as e:
-        return f"预测出错: {str(e)}"
-
+        import traceback
+        traceback.print_exc()
+        return pd.DataFrame({"错误": [f"预测出错: {str(e)}"]})
+    
 
 def evaluate_model(file=None):
     """

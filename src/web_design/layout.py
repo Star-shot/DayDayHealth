@@ -309,16 +309,22 @@ def create_model_eval_tab():
 
 def create_prediction_tab():
     """创建批量预测标签页"""
-    with gr.Tab("批量预测"):
+    with gr.Tab("🔮 批量预测"):
+        gr.Markdown("""
+        💡 **使用说明**：
+        - 上传预测文件（无需标签列），自动使用训练时的特征列
+        - 不上传文件时，点击预测将使用测试集数据（可对比真实标签）
+        """)
+        
         pred_file = gr.File(
-            label="上传预测文件（CSV/XLSX）",
+            label="上传预测文件（可选，留空则使用测试集）",
             file_types=[".csv", ".xlsx"]
         )
-        pred_btn = gr.Button("开始预测", variant="secondary")
+        pred_btn = gr.Button("🚀 开始预测", variant="primary")
         pred_output = gr.Dataframe(
             label="预测结果",
-            headers=["样本序号", "预测结果"],
-            interactive=False
+            interactive=False,
+            wrap=True
         )
     
     return {
