@@ -73,15 +73,37 @@ def create_data_processing_tab():
                 download_report_btn = gr.Button("📄 下载报告", variant="secondary", size="sm")
                 send_to_llm_btn = gr.Button("🤖 发送给AI分析", variant="primary", size="sm")
             
-            with gr.Row():
-                encode_strategy = gr.Dropdown(
-                    choices=["auto", "label", "onehot"],
-                    value="auto",
-                    label="分类变量编码策略",
-                    info="auto: 自动选择 | label: 标签编码 | onehot: 独热编码",
-                    scale=2
+            # 模型训练传递区域 - 美化后的卡片式设计
+            with gr.Group():
+                gr.Markdown("### 🚀 传递到模型训练")
+                with gr.Row(equal_height=True):
+                    with gr.Column(scale=3):
+                        encode_strategy = gr.Radio(
+                            choices=["auto", "label", "onehot"],
+                            value="auto",
+                            label="分类变量编码策略",
+                            info="选择如何处理分类变量（如性别、类型等非数值列）",
+                        )
+                        gr.Markdown("""
+                        <small>
+                        • **auto**: 智能选择（类别少用标签编码，类别多用独热编码）<br>
+                        • **label**: 标签编码（将类别转为0,1,2...数字）<br>
+                        • **onehot**: 独热编码（将每个类别转为独立的0/1列）
+                        </small>
+                        """)
+                    with gr.Column(scale=1, min_width=150):
+                        send_to_train_btn = gr.Button(
+                            "🚀 传递数据", 
+                            variant="primary", 
+                            size="lg",
+                            elem_classes=["send-train-btn"]
+                        )
+                
+                # 传递状态反馈
+                transfer_status = gr.Markdown(
+                    value="",
+                    visible=True
                 )
-                send_to_train_btn = gr.Button("🚀 传递到模型训练", variant="primary", size="sm", scale=1)
             
             with gr.Row():
                 processed_file = gr.File(label="处理后数据", visible=False)
@@ -130,6 +152,7 @@ def create_data_processing_tab():
         'send_to_llm_btn': send_to_llm_btn,
         'encode_strategy': encode_strategy,
         'send_to_train_btn': send_to_train_btn,
+        'transfer_status': transfer_status,
         'processed_file': processed_file,
         'report_file': report_file,
         'auto_missing_plot': auto_missing_plot,
@@ -198,12 +221,20 @@ def create_model_training_tab():
         
         gr.Markdown("### 🤖 模型选择")
         model_choice = gr.Dropdown(
-            choices=["Random Forest", "SVM", "Logistic Regression"],
+            choices=[
+                "Random Forest", 
+                "SVM", 
+                "Logistic Regression",
+                "XGBoost",
+                "LightGBM", 
+                "KNN",
+                "Naive Bayes"
+            ],
             label="选择模型",
             value="Random Forest"
         )
         # 各模型参数区
-        with gr.Accordion("随机森林参数", visible=True) as rf_params:
+        with gr.Accordion("🌲 随机森林参数", visible=True) as rf_params:
             rf_n_estimators = gr.Slider(50, 500, value=100, step=50, label="树的数量 (n_estimators)")
             rf_max_depth = gr.Slider(2, 50, value=None, step=1, label="最大深度 (max_depth)")
             rf_max_features = gr.Dropdown(
@@ -212,7 +243,7 @@ def create_model_training_tab():
                 label="最大特征数 (max_features)"
             )
         
-        with gr.Accordion("SVM参数", visible=False) as svm_params:
+        with gr.Accordion("⚡ SVM参数", visible=False) as svm_params:
             svm_kernel = gr.Dropdown(
                 ["linear", "poly", "rbf", "sigmoid"],
                 value="linear",
@@ -225,7 +256,7 @@ def create_model_training_tab():
                 label="核系数 (gamma)"
             )
         
-        with gr.Accordion("逻辑回归参数", visible=False) as lr_params:
+        with gr.Accordion("📈 逻辑回归参数", visible=False) as lr_params:
             lr_penalty = gr.Dropdown(
                 ["l2", "l1", "elasticnet", "none"],
                 value="l2",
@@ -237,14 +268,57 @@ def create_model_training_tab():
                 value="lbfgs",
                 label="优化算法 (solver)"
             )
+        
+        with gr.Accordion("🚀 XGBoost参数", visible=False) as xgb_params:
+            xgb_n_estimators = gr.Slider(50, 500, value=100, step=50, label="树的数量 (n_estimators)")
+            xgb_max_depth = gr.Slider(2, 15, value=6, step=1, label="最大深度 (max_depth)")
+            xgb_learning_rate = gr.Slider(0.01, 0.5, value=0.1, step=0.01, label="学习率 (learning_rate)")
+        
+        with gr.Accordion("⚡ LightGBM参数", visible=False) as lgbm_params:
+            lgbm_n_estimators = gr.Slider(50, 500, value=100, step=50, label="树的数量 (n_estimators)")
+            lgbm_max_depth = gr.Slider(-1, 15, value=-1, step=1, label="最大深度 (max_depth, -1表示无限制)")
+            lgbm_learning_rate = gr.Slider(0.01, 0.5, value=0.1, step=0.01, label="学习率 (learning_rate)")
+            lgbm_num_leaves = gr.Slider(10, 100, value=31, step=1, label="叶子节点数 (num_leaves)")
+        
+        with gr.Accordion("👥 KNN参数", visible=False) as knn_params:
+            knn_n_neighbors = gr.Slider(1, 20, value=5, step=1, label="近邻数 (n_neighbors)")
+            knn_weights = gr.Dropdown(
+                ["uniform", "distance"],
+                value="uniform",
+                label="权重方式 (weights)",
+                info="uniform: 等权重 | distance: 距离加权"
+            )
+            knn_algorithm = gr.Dropdown(
+                ["auto", "ball_tree", "kd_tree", "brute"],
+                value="auto",
+                label="算法 (algorithm)"
+            )
+        
+        with gr.Accordion("📊 朴素贝叶斯参数", visible=False) as nb_params:
+            nb_type = gr.Dropdown(
+                ["gaussian", "multinomial", "bernoulli"],
+                value="gaussian",
+                label="朴素贝叶斯类型",
+                info="gaussian: 高斯分布 | multinomial: 多项式 | bernoulli: 伯努利"
+            )
 
         train_btn = gr.Button("开始训练", variant="primary") 
         train_output = gr.Textbox(
             label="训练结果",
             interactive=False,
-            lines=8,
+            lines=6,
             placeholder="训练结果将显示在此处..."
         )
+        
+        # 训练报告下载和预览
+        with gr.Row():
+            train_report_file = gr.File(label="📥 下载训练报告 (ZIP)", visible=True, scale=1)
+        
+        with gr.Accordion("📄 训练报告预览", open=False):
+            train_report_preview = gr.Markdown(
+                value="*训练完成后将在此显示报告预览*",
+                label="训练报告"
+            )
     
     return {
         'train_file': train_file,
@@ -267,8 +341,25 @@ def create_model_training_tab():
         'lr_penalty': lr_penalty,
         'lr_C': lr_C,
         'lr_solver': lr_solver,
+        'xgb_params': xgb_params,
+        'xgb_n_estimators': xgb_n_estimators,
+        'xgb_max_depth': xgb_max_depth,
+        'xgb_learning_rate': xgb_learning_rate,
+        'lgbm_params': lgbm_params,
+        'lgbm_n_estimators': lgbm_n_estimators,
+        'lgbm_max_depth': lgbm_max_depth,
+        'lgbm_learning_rate': lgbm_learning_rate,
+        'lgbm_num_leaves': lgbm_num_leaves,
+        'knn_params': knn_params,
+        'knn_n_neighbors': knn_n_neighbors,
+        'knn_weights': knn_weights,
+        'knn_algorithm': knn_algorithm,
+        'nb_params': nb_params,
+        'nb_type': nb_type,
         'train_btn': train_btn,
         'train_output': train_output,
+        'train_report_file': train_report_file,
+        'train_report_preview': train_report_preview,
     }
 
 
@@ -291,10 +382,24 @@ def create_model_eval_tab():
             interactive=False
         )
         
-        # 可视化图表（纵向排列）
-        roc_curve_plot = gr.Plot(label="ROC曲线")
-        pr_curve_plot = gr.Plot(label="PR曲线")
+        # 可视化图表（两列排列）
+        with gr.Row():
+            with gr.Column():
+                roc_curve_plot = gr.Plot(label="ROC曲线")
+            with gr.Column():
+                pr_curve_plot = gr.Plot(label="PR曲线")
+        
         confusion_matrix_plot = gr.Plot(label="混淆矩阵")
+        
+        # 评估报告下载和预览
+        with gr.Row():
+            eval_report_file = gr.File(label="📥 下载评估报告 (ZIP)", visible=True)
+        
+        with gr.Accordion("📄 评估报告预览", open=False):
+            eval_report_preview = gr.Markdown(
+                value="*评估完成后将在此显示报告预览*",
+                label="评估报告"
+            )
     
     return {
         'eval_status': eval_status,
@@ -304,6 +409,8 @@ def create_model_eval_tab():
         'roc_curve_plot': roc_curve_plot,
         'pr_curve_plot': pr_curve_plot,
         'confusion_matrix_plot': confusion_matrix_plot,
+        'eval_report_file': eval_report_file,
+        'eval_report_preview': eval_report_preview,
     }
 
 
@@ -347,8 +454,8 @@ def create_chat_sidebar():
         msg = gr.Textbox(
             label="💬 输入消息",
             placeholder="有什么可以帮助你的？按回车发送...",
-            lines=3,
-            max_lines=5,
+            lines=1,
+            max_lines=1,
         )
         
         img_input = gr.Image(
@@ -357,19 +464,18 @@ def create_chat_sidebar():
             height=150,
         )
         
+        # 隐藏的智能体选择（保留功能但不显示）
         model_id = gr.Dropdown(
-            label="🎯 选择智能体",
             value="健康管理",
             choices=["疾病诊断", "健康管理", "营养指导"],
+            visible=False
         )
-        
-        provider_info = gr.Markdown(value="*当前模型: qwen / qwen-max*")
         
         with gr.Row():
             send_btn = gr.Button("🚀 发送", variant="primary")
             clear_btn = gr.ClearButton([msg, chatbot, img_input], value="🗑️ 清空")
         
-        download_history_btn = gr.Button("📥 导出对话记录", variant="secondary")
+        download_history_btn = gr.Button("📥 导出对话记录", variant="secondary", size="sm")
         
         chat_history_file = gr.File(label="对话记录", visible=False)
         
@@ -382,7 +488,6 @@ def create_chat_sidebar():
         'msg': msg,
         'img_input': img_input,
         'model_id': model_id,
-        'provider_info': provider_info,
         'send_btn': send_btn,
         'clear_btn': clear_btn,
         'download_history_btn': download_history_btn,
@@ -410,11 +515,48 @@ def create_layout():
             # 批量预测
             pred_components = create_prediction_tab()
             
-            with gr.Tab("📑 可视化"):
-                gr.Markdown("*可视化功能开发中...*")
+            with gr.Tab("📑 报告中心"):
+                gr.Markdown("## 📊 报告汇总中心")
+                gr.Markdown("在此处可以查看和对比所有分析报告")
+                
+                with gr.Tabs():
+                    with gr.Tab("📋 数据处理报告"):
+                        viz_data_report = gr.Markdown(
+                            value="*执行数据预处理后，报告将在此显示*",
+                            label="数据处理报告"
+                        )
+                    
+                    with gr.Tab("🚀 训练报告"):
+                        viz_train_report = gr.Markdown(
+                            value="*完成模型训练后，报告将在此显示*",
+                            label="训练报告"
+                        )
+                    
+                    with gr.Tab("📈 评估报告"):
+                        viz_eval_report = gr.Markdown(
+                            value="*完成模型评估后，报告将在此显示*",
+                            label="评估报告"
+                        )
+                
+                gr.Markdown("---")
+                gr.Markdown("### 📥 快捷下载")
+                with gr.Row():
+                    viz_data_file = gr.File(label="数据处理报告", visible=True)
+                    viz_train_file = gr.File(label="训练报告", visible=True)
+                    viz_eval_file = gr.File(label="评估报告", visible=True)
         
         # 右侧可收缩聊天侧边栏
         chat_components = create_chat_sidebar()
+        
+        # 可视化/报告中心组件
+        viz_components = {
+            'viz_data_report': viz_data_report,
+            'viz_train_report': viz_train_report,
+            'viz_eval_report': viz_eval_report,
+            'viz_data_file': viz_data_file,
+            'viz_train_file': viz_train_file,
+            'viz_eval_file': viz_eval_file,
+        }
         
         # 合并所有组件
         components = {}
@@ -422,6 +564,7 @@ def create_layout():
         components.update(train_components)
         components.update(eval_components)
         components.update(pred_components)
+        components.update(viz_components)
         components.update(chat_components)
         
         return demo, components

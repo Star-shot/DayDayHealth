@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import json
 import os
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression as SklearnLogisticRegression
 from sklearn.metrics import (
     accuracy_score, confusion_matrix, classification_report,
     precision_score, recall_score, f1_score, roc_auc_score,
@@ -44,7 +44,7 @@ class LogisticRegression:
         self.out_dir = out_dir
         
         # 初始化模型
-        self.model = LogisticRegression(
+        self.model = SklearnLogisticRegression(
             penalty=self.penalty,
             C=self.C,
             solver=self.solver,

@@ -85,6 +85,87 @@ class DataProcessor:
         self.df = df.copy()
         self.original_df = df.copy()
         self.processing_log = []
+        
+        # 自动检测 ID 列（每行都不同的列）
+        self.id_columns = self._detect_id_columns()
+        if self.id_columns:
+            self.processing_log.append(f"检测到ID列: {self.id_columns}（已排除分析）")
+    
+    def _detect_id_columns(self) -> List[str]:
+        """
+        检测 ID 列（每行值都不同且像是标识符的列）
+        
+        判断条件：
+        1. 唯一值数量等于行数
+        2. 列名包含 'id'、'_id'、'ID' 等关键字，或
+        3. 是字符串类型且每行都不同，或
+        4. 是整数类型且是连续递增的序列
+        
+        Returns:
+            ID 列名列表
+        """
+        id_cols = []
+        n_rows = len(self.df)
+        
+        if n_rows == 0:
+            return id_cols
+        
+        # ID 相关关键字
+        id_keywords = ['id', '_id', 'ID', 'Id', 'index', 'Index', 'INDEX', 
+                       'uuid', 'UUID', 'key', 'KEY', 'code', 'CODE', 'no', 'No', 'NO']
+        
+        for col in self.df.columns:
+            n_unique = self.df[col].nunique()
+            
+            # 条件1：唯一值数量必须等于或接近行数
+            if n_unique < n_rows * 0.95:
+                continue
+            
+            is_id = False
+            
+            # 条件2：列名包含 ID 关键字
+            if any(kw in col for kw in id_keywords):
+                is_id = True
+            
+            # 条件3：字符串类型且每行都不同
+            elif self.df[col].dtype == 'object':
+                is_id = True
+            
+            # 条件4：整数类型且是连续递增序列
+            elif np.issubdtype(self.df[col].dtype, np.integer):
+                sorted_vals = self.df[col].dropna().sort_values()
+                if len(sorted_vals) > 1:
+                    diffs = sorted_vals.diff().dropna()
+                    # 如果差值全是1，说明是连续递增序列
+                    if (diffs == 1).all():
+                        is_id = True
+            
+            if is_id:
+                id_cols.append(col)
+        
+        return id_cols
+    
+    def get_analysis_columns(self, include_types=None) -> List[str]:
+        """
+        获取用于分析的列（排除 ID 列）
+        
+        Args:
+            include_types: 包含的数据类型，None 表示所有类型
+            
+        Returns:
+            分析列名列表
+        """
+        if include_types:
+            cols = self.df.select_dtypes(include=include_types).columns.tolist()
+        else:
+            cols = self.df.columns.tolist()
+        
+        # 排除 ID 列
+        return [c for c in cols if c not in self.id_columns]
+    
+    def get_id_columns(self) -> List[str]:
+        """获取检测到的 ID 列"""
+        return self.id_columns
     
     def get_data(self) -> pd.DataFrame:
         """获取处理后的数据"""
@@ -94,6 +175,7 @@ class DataProcessor:
         """重置为原始数据"""
         self.df = self.original_df.copy()
         self.processing_log = []
+        self.id_columns = self._detect_id_columns()
     
     def _select_representative_features(self, columns: List[str] = None, 
                                           max_features: int = MAX_DISPLAY_FEATURES) -> List[str]:
@@ -290,12 +372,13 @@ class DataProcessor:
                 - 'mode': 众数填充
                 - 'knn': KNN填充（仅数值型）
                 - 'drop': 删除缺失行
-            columns: 要处理的列，None表示所有列
+            columns: 要处理的列，None表示所有列（排除ID列）
             
         Returns:
             self，支持链式调用
         """
-        cols = columns if columns else self.df.columns.tolist()
+        # 排除 ID 列
+        cols = columns if columns else [c for c in self.df.columns if c not in self.id_columns]
         
         for col in cols:
             if self.df[col].isnull().sum() == 0:
@@ -393,7 +476,7 @@ class DataProcessor:
         绘制美观的箱线图（横向展示，自动选择代表性特征）
         
         Args:
-            columns: 要绘制的列，None表示自动选择
+            columns: 要绘制的列，None表示自动选择（排除ID列）
             figsize: 图形大小
             max_features: 最大显示特征数
             normalize: 是否归一化数据（便于不同尺度特征比较）
@@ -402,7 +485,9 @@ class DataProcessor:
             matplotlib Figure 对象
         """
         if columns is None:
-            all_numeric = self.df.select_dtypes(include=[np.number]).columns.tolist()
+            # 排除 ID 列
+            all_numeric = [c for c in self.df.select_dtypes(include=[np.number]).columns 
+                          if c not in self.id_columns]
             columns = self._select_representative_features(all_numeric, max_features)
         
         n_cols = len(columns)
@@ -524,7 +609,7 @@ class DataProcessor:
         处理异常值
         
         Args:
-            columns: 要处理的列，None表示所有数值列
+            columns: 要处理的列，None表示所有数值列（排除ID列）
             method: 处理方法
                 - 'cap': 盖帽法（截断到IQR边界）
                 - 'drop': 删除异常值行
@@ -534,7 +619,9 @@ class DataProcessor:
             self，支持链式调用
         """
         if columns is None:
-            columns = self.df.select_dtypes(include=[np.number]).columns.tolist()
+            # 排除 ID 列
+            columns = [c for c in self.df.select_dtypes(include=[np.number]).columns 
+                      if c not in self.id_columns]
         
         for col in columns:
             Q1 = self.df[col].quantile(0.25)
@@ -580,9 +667,10 @@ class DataProcessor:
         """
         from sklearn.preprocessing import LabelEncoder
         
-        # 获取需要编码的列
+        # 获取需要编码的列（排除 ID 列和目标列）
         if columns is None:
-            columns = self.df.select_dtypes(include=['object', 'category']).columns.tolist()
+            columns = [c for c in self.df.select_dtypes(include=['object', 'category']).columns 
+                      if c not in self.id_columns]
             # 排除目标列
             if target_column and target_column in columns:
                 columns.remove(target_column)
@@ -659,7 +747,7 @@ class DataProcessor:
         绘制数据分布图（直方图 + KDE）
         
         Args:
-            columns: 要绘制的列
+            columns: 要绘制的列（排除ID列）
             figsize: 图形大小
             max_features: 最大显示特征数
             
@@ -667,7 +755,9 @@ class DataProcessor:
             matplotlib Figure 对象
         """
         if columns is None:
-            all_numeric = self.df.select_dtypes(include=[np.number]).columns.tolist()
+            # 排除 ID 列
+            all_numeric = [c for c in self.df.select_dtypes(include=[np.number]).columns 
+                          if c not in self.id_columns]
             columns = self._select_representative_features(all_numeric, max_features)
         
         n_cols = len(columns)
@@ -784,7 +874,7 @@ class DataProcessor:
         绘制美观的相关性热力图
         
         Args:
-            columns: 要分析的列
+            columns: 要分析的列（排除ID列）
             figsize: 图形大小
             max_features: 最大显示特征数
             
@@ -792,7 +882,9 @@ class DataProcessor:
             matplotlib Figure 对象
         """
         if columns is None:
-            all_numeric = self.df.select_dtypes(include=[np.number]).columns.tolist()
+            # 排除 ID 列
+            all_numeric = [c for c in self.df.select_dtypes(include=[np.number]).columns 
+                          if c not in self.id_columns]
             columns = self._select_representative_features(all_numeric, max_features)
         
         if len(columns) > max_features:

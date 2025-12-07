@@ -36,7 +36,8 @@ def setup_events(components, handlers):
             components['auto_missing_plot'],
             components['auto_outlier_plot'],
             components['auto_dist_plot'],
-            components['auto_corr_plot']
+            components['auto_corr_plot'],
+            components['viz_data_report']
         ]
     )
     
@@ -81,7 +82,8 @@ def setup_events(components, handlers):
             components['auto_missing_plot'],
             components['auto_outlier_plot'],
             components['auto_dist_plot'],
-            components['auto_corr_plot']
+            components['auto_corr_plot'],
+            components['viz_data_report']
         ]
     )
     
@@ -133,7 +135,11 @@ def setup_events(components, handlers):
         outputs=[
             components['rf_params'], 
             components['svm_params'], 
-            components['lr_params']
+            components['lr_params'],
+            components['xgb_params'],
+            components['lgbm_params'],
+            components['knn_params'],
+            components['nb_params']
         ]
     )
     
@@ -157,9 +163,26 @@ def setup_events(components, handlers):
             components['svm_gamma'],
             components['lr_penalty'],
             components['lr_C'],
-            components['lr_solver']
+            components['lr_solver'],
+            components['xgb_n_estimators'],
+            components['xgb_max_depth'],
+            components['xgb_learning_rate'],
+            components['lgbm_n_estimators'],
+            components['lgbm_max_depth'],
+            components['lgbm_learning_rate'],
+            components['lgbm_num_leaves'],
+            components['knn_n_neighbors'],
+            components['knn_weights'],
+            components['knn_algorithm'],
+            components['nb_type']
         ],
-        outputs=components['train_output']
+        outputs=[
+            components['train_output'], 
+            components['train_report_file'],
+            components['train_report_preview'],
+            components['viz_train_report'],
+            components['viz_train_file']
+        ]
     ).then(
         fn=handlers['evaluate_model'],
         inputs=None,  # 使用训练时保存的测试集
@@ -168,7 +191,11 @@ def setup_events(components, handlers):
             components['eval_metrics'],
             components['roc_curve_plot'], 
             components['pr_curve_plot'], 
-            components['confusion_matrix_plot']
+            components['confusion_matrix_plot'],
+            components['eval_report_file'],
+            components['eval_report_preview'],
+            components['viz_eval_report'],
+            components['viz_eval_file']
         ]
     )
     
@@ -183,7 +210,11 @@ def setup_events(components, handlers):
             components['eval_metrics'],
             components['roc_curve_plot'], 
             components['pr_curve_plot'], 
-            components['confusion_matrix_plot']
+            components['confusion_matrix_plot'],
+            components['eval_report_file'],
+            components['eval_report_preview'],
+            components['viz_eval_report'],
+            components['viz_eval_file']
         ]
     )
     
@@ -196,13 +227,6 @@ def setup_events(components, handlers):
     )
     
     # ==================== 聊天事件 ====================
-    
-    # 模型选择变化时更新信息
-    components['model_id'].change(
-        fn=handlers['update_provider_info'],
-        inputs=components['model_id'],
-        outputs=components['provider_info']
-    )
     
     # 回车发送
     components['msg'].submit(

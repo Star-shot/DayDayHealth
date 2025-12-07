@@ -63,7 +63,7 @@ def analyze_data(file):
     global global_processor, global_report
     
     if file is None:
-        return "", "", None, None, None, None
+        return "", "", None, None, None, None, ""
     
     try:
         if file.name.endswith('.csv'):
@@ -127,12 +127,13 @@ def analyze_data(file):
             missing_fig,
             outlier_fig,
             dist_fig,
-            corr_fig
+            corr_fig,
+            md_with_images  # 同步到报告中心
         )
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return f"分析失败: {str(e)}", "", None, None, None, None
+        return f"分析失败: {str(e)}", "", None, None, None, None, ""
 
 
 def generate_markdown_with_images(report: dict, plot_paths: dict) -> str:
@@ -246,7 +247,7 @@ def process_data(file, fill_strategy, outlier_method):
     global global_processor, global_report
     
     if file is None:
-        return None, "请先上传文件", "", "", None, None, None, None
+        return None, "请先上传文件", "", "", None, None, None, None, ""
     
     try:
         if file.name.endswith('.csv'):
@@ -322,12 +323,13 @@ def process_data(file, fill_strategy, outlier_method):
             missing_fig,
             outlier_fig,
             dist_fig,
-            corr_fig
+            corr_fig,
+            md_with_images  # 同步到报告中心
         )
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return None, f"处理失败: {str(e)}", "", "", None, None, None, None
+        return None, f"处理失败: {str(e)}", "", "", None, None, None, None, ""
 
 
 # ==================== 下载功能 ====================

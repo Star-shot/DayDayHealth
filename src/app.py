@@ -34,6 +34,11 @@ from utils.app_helpers import (
 from models.svm import SVM
 from models.logistic_regression import LogisticRegression
 from models.random_forest import RandomForest
+from models.xgboost_model import XGBoost
+from models.lightgbm_model import LightGBM
+from models.knn import KNN
+from models.naive_bayes import NaiveBayes
+from utils.report_generator import ReportGenerator
 
 
 from web_design import create_layout, setup_events
@@ -46,6 +51,11 @@ _global_model = None
 _global_test_data = None  # 保存测试集 (X_test, y_test)
 _global_feature_cols = None  # 保存训练时使用的特征列名
 _global_label_col = None  # 保存标签列名
+_global_model_type = None  # 保存模型类型
+_global_training_info = None  # 保存训练信息（用于报告）
+
+# 初始化报告生成器
+report_generator = ReportGenerator(output_dir="reports")
 
 
 def get_file_columns(file):
@@ -89,15 +99,27 @@ def train_model(
     svm_gamma="scale",
     lr_penalty="l2",
     lr_C=1.0,
-    lr_solver="lbfgs"
+    lr_solver="lbfgs",
+    xgb_n_estimators=100,
+    xgb_max_depth=6,
+    xgb_learning_rate=0.1,
+    lgbm_n_estimators=100,
+    lgbm_max_depth=-1,
+    lgbm_learning_rate=0.1,
+    lgbm_num_leaves=31,
+    knn_n_neighbors=5,
+    knn_weights="uniform",
+    knn_algorithm="auto",
+    nb_type="gaussian"
 ):
     """训练模型（支持自定义特征列和标签列）"""
-    global _global_model, _global_test_data, _global_feature_cols, _global_label_col
+    global _global_model, _global_test_data, _global_feature_cols, _global_label_col, _global_model_type, _global_training_info
     from sklearn.model_selection import cross_val_score, StratifiedKFold
     import numpy as np
+    from collections import Counter
     
     if file is None:
-        return "请先上传训练数据！"
+        return "请先上传训练数据！", None, "", "", None
     
     try:
         # 加载数据
@@ -136,8 +158,9 @@ def train_model(
             feature_info = f"使用全部 {X.shape[1]} 个特征（默认）"
             _global_feature_cols = valid_features
         
-        # 保存标签列名
+        # 保存标签列名和模型类型
         _global_label_col = label_col
+        _global_model_type = model_type
         
         random_seed = int(random_seed) if random_seed else 42
         
@@ -155,17 +178,77 @@ def train_model(
                 C=svm_C,
                 gamma=svm_gamma
             )
-        else:  # Logistic Regression
+        elif model_type == "Logistic Regression":
             model = LogisticRegression(
                 penalty=lr_penalty,
                 C=lr_C,
                 solver=lr_solver
             )
+        elif model_type == "XGBoost":
+            model = XGBoost(
+                n_estimators=xgb_n_estimators,
+                max_depth=xgb_max_depth,
+                learning_rate=xgb_learning_rate,
+                random_state=random_seed
+            )
+        elif model_type == "LightGBM":
+            model = LightGBM(
+                n_estimators=lgbm_n_estimators,
+                max_depth=lgbm_max_depth,
+                learning_rate=lgbm_learning_rate,
+                num_leaves=lgbm_num_leaves,
+                random_state=random_seed
+            )
+        elif model_type == "KNN":
+            model = KNN(
+                n_neighbors=knn_n_neighbors,
+                weights=knn_weights,
+                algorithm=knn_algorithm
+            )
+        elif model_type == "Naive Bayes":
+            model = NaiveBayes(
+                nb_type=nb_type
+            )
+        else:
+            return f"不支持的模型类型: {model_type}", None, "", "", None
         
         # 检查类别分布，判断是否可以分层采样
-        from collections import Counter
         class_counts = Counter(y)
         min_class_count = min(class_counts.values())
+        
+        # 准备数据集信息
+        dataset_info = {
+            'total_samples': len(X),
+            'n_features': X.shape[1],
+            'label_col': label_col,
+            'feature_cols': _global_feature_cols,
+            'class_distribution': dict(class_counts)
+        }
+        
+        # 准备训练参数
+        training_params = {
+            'random_seed': random_seed,
+            'rf_n_estimators': rf_n_estimators,
+            'rf_max_depth': rf_max_depth,
+            'rf_max_features': rf_max_features,
+            'svm_kernel': svm_kernel,
+            'svm_C': svm_C,
+            'svm_gamma': svm_gamma,
+            'lr_penalty': lr_penalty,
+            'lr_C': lr_C,
+            'lr_solver': lr_solver,
+            'xgb_n_estimators': xgb_n_estimators,
+            'xgb_max_depth': xgb_max_depth,
+            'xgb_learning_rate': xgb_learning_rate,
+            'lgbm_n_estimators': lgbm_n_estimators,
+            'lgbm_max_depth': lgbm_max_depth,
+            'lgbm_learning_rate': lgbm_learning_rate,
+            'lgbm_num_leaves': lgbm_num_leaves,
+            'knn_n_neighbors': knn_n_neighbors,
+            'knn_weights': knn_weights,
+            'knn_algorithm': knn_algorithm,
+            'nb_type': nb_type,
+        }
         
         # K折交叉验证
         if split_method == "K折交叉验证":
@@ -187,20 +270,55 @@ def train_model(
             f1_scores = cross_val_score(sklearn_model, X, y, cv=cv, scoring='f1_macro')
             recall_scores = cross_val_score(sklearn_model, X, y, cv=cv, scoring='recall_macro')
             
-            # 划分一部分数据用于评估可视化
+            # 划分训练集和测试集（与简单切分保持一致，公平比较）
+            test_size_val = 0.2  # 默认20%，与简单切分一致
             if min_class_count >= 2:
                 X_train, X_eval, y_train, y_eval = train_test_split(
-                    X, y, test_size=0.2, random_state=random_seed, stratify=y
+                    X, y, test_size=test_size_val, random_state=random_seed, stratify=y
                 )
             else:
                 X_train, X_eval, y_train, y_eval = train_test_split(
-                    X, y, test_size=0.2, random_state=random_seed
+                    X, y, test_size=test_size_val, random_state=random_seed
                 )
             
-            # 用全部数据训练最终模型
-            model.train(X, y)
+            # 用训练集训练最终模型（与简单切分一致，公平比较）
+            model.train(X_train, y_train)
             _global_model = model
             _global_test_data = (X_eval, y_eval)  # 保存评估数据
+            
+            # 保存训练信息
+            training_params['k_folds'] = k
+            results = {
+                'cv_type': stratify_info,
+                'cv_accuracy_mean': acc_scores.mean(),
+                'cv_accuracy_std': acc_scores.std(),
+                'cv_accuracy_scores': acc_scores.tolist(),
+                'cv_recall_mean': recall_scores.mean(),
+                'cv_recall_std': recall_scores.std(),
+                'cv_recall_scores': recall_scores.tolist(),
+                'cv_f1_mean': f1_scores.mean(),
+                'cv_f1_std': f1_scores.std(),
+                'cv_f1_scores': f1_scores.tolist(),
+                'train_samples': len(X_train),
+                'test_samples': len(X_eval),
+                'train_ratio': int((1-test_size_val) * 100)
+            }
+            
+            _global_training_info = {
+                'dataset_info': dataset_info,
+                'training_params': training_params,
+                'results': results,
+                'split_method': split_method
+            }
+            
+            # 生成训练报告
+            report_path = report_generator.generate_training_report(
+                model_type=model_type,
+                dataset_info=dataset_info,
+                training_params=training_params,
+                results=results,
+                split_method=split_method
+            )
             
             result = f"🔄 {k}折{stratify_info}交叉验证完成！\n\n"
             if stratify_info == "普通":
@@ -208,15 +326,21 @@ def train_model(
             result += f"📊 数据: {len(X)} 样本 × {X.shape[1]} 特征\n"
             result += f"   标签列: {label_col} | {feature_info}\n"
             result += f"   类别分布: {dict(class_counts)}\n\n"
-            result += f"📊 准确率: {acc_scores.mean():.3f} ± {acc_scores.std():.3f}\n"
+            result += f"📊 交叉验证分数（理论评估，用全部数据多次切分取平均）:\n"
+            result += f"   准确率: {acc_scores.mean():.3f} ± {acc_scores.std():.3f}\n"
             result += f"   各折: {', '.join([f'{s:.3f}' for s in acc_scores])}\n\n"
-            result += f"📊 召回率: {recall_scores.mean():.3f} ± {recall_scores.std():.3f}\n"
+            result += f"   召回率: {recall_scores.mean():.3f} ± {recall_scores.std():.3f}\n"
             result += f"   各折: {', '.join([f'{s:.3f}' for s in recall_scores])}\n\n"
-            result += f"📊 F1分数: {f1_scores.mean():.3f} ± {f1_scores.std():.3f}\n"
+            result += f"   F1分数: {f1_scores.mean():.3f} ± {f1_scores.std():.3f}\n"
             result += f"   各折: {', '.join([f'{s:.3f}' for s in f1_scores])}\n\n"
-            result += f"✅ 最终模型已用全部数据训练，评估数据已保存（{len(X_eval)}样本）"
+            result += f"📊 最终模型: 用 {len(X_train)} 样本训练（{1-test_size_val:.0%}），{len(X_eval)} 样本测试（{test_size_val:.0%}）\n"
+            result += f"   💡 交叉验证分数通常更稳定（多次评估平均），但最终模型评估与简单切分使用相同数据量\n\n"
+            result += f"📄 训练报告已生成: {report_path}"
             
-            return result
+            # 获取报告预览内容
+            report_preview = report_generator.get_last_training_report()
+            
+            return result, report_path, report_preview, report_preview, report_path
         
         # 简单切分
         else:
@@ -236,6 +360,29 @@ def train_model(
             _global_model = model
             _global_test_data = (X_test, y_test)  # 保存测试集用于评估
             
+            # 保存训练信息
+            training_params['test_size'] = test_size
+            results = {
+                'train_samples': len(X_train),
+                'test_samples': len(X_test)
+            }
+            
+            _global_training_info = {
+                'dataset_info': dataset_info,
+                'training_params': training_params,
+                'results': results,
+                'split_method': split_method
+            }
+            
+            # 生成训练报告
+            report_path = report_generator.generate_training_report(
+                model_type=model_type,
+                dataset_info=dataset_info,
+                training_params=training_params,
+                results=results,
+                split_method=split_method
+            )
+            
             result = f"✅ 简单切分训练完成！{stratify_info}\n\n"
             result += f"📊 数据: {len(X)} 样本 × {X.shape[1]} 特征\n"
             result += f"   标签列: {label_col} | {feature_info}\n\n"
@@ -243,14 +390,18 @@ def train_model(
             result += f"   训练集: {len(X_train)} 样本 ({1-test_size:.0%})\n"
             result += f"   测试集: {len(X_test)} 样本 ({test_size:.0%})\n\n"
             result += f"📊 类别分布: {dict(class_counts)}\n\n"
-            result += f"🔄 正在自动进行模型评估..."
+            result += f"🔄 正在自动进行模型评估...\n\n"
+            result += f"📄 训练报告已生成: {report_path}"
             
-            return result
+            # 获取报告预览内容
+            report_preview = report_generator.get_last_training_report()
+            
+            return result, report_path, report_preview, report_preview, report_path
     
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return f"训练出错: {str(e)}"
+        return f"训练出错: {str(e)}", None, "", "", None
 
 
 def make_prediction(pred_file):
@@ -335,11 +486,11 @@ def evaluate_model(file=None):
     - 如果提供 file，使用上传的文件评估
     - 如果 file 为空，使用训练时保存的测试集
     """
-    global _global_model, _global_test_data
+    global _global_model, _global_test_data, _global_model_type
     
     if _global_model is None:
         empty_df = pd.DataFrame({"提示": ["请先训练模型"]})
-        return "⚠️ 请先训练模型！", empty_df, None, None, None
+        return "⚠️ 请先训练模型！", empty_df, None, None, None, None, "", "", None
     
     # 获取评估数据
     if file is not None:
@@ -350,7 +501,7 @@ def evaluate_model(file=None):
         data_source = "训练测试集"
     else:
         empty_df = pd.DataFrame({"提示": ["没有可用的评估数据"]})
-        return "⚠️ 没有可用的评估数据，请上传文件或先训练模型", empty_df, None, None, None
+        return "⚠️ 没有可用的评估数据，请上传文件或先训练模型", empty_df, None, None, None, None, "", "", None
     
     try:
         # 计算预测和指标
@@ -376,15 +527,38 @@ def evaluate_model(file=None):
         eval_metrics = _global_model.evaluate(X, y)
         confusion_matrix_fig = viz.plot_confusion_matrix(eval_metrics['confusion_matrix'])
         
-        status = f"✅ 使用 **{data_source}** 评估完成 | 样本数: {len(y)}"
+        # 准备数据集信息
+        from collections import Counter
+        class_counts = Counter(y)
+        dataset_info = {
+            'n_samples': len(y),
+            'n_features': X.shape[1],
+            'class_distribution': dict(class_counts)
+        }
         
-        return status, metrics_df, roc_fig, pr_fig, confusion_matrix_fig
+        # 生成评估报告（传递图表对象）
+        report_path = report_generator.generate_evaluation_report(
+            model_type=_global_model_type if _global_model_type else "Unknown",
+            dataset_info=dataset_info,
+            metrics=eval_metrics,
+            data_source=data_source,
+            confusion_matrix_fig=confusion_matrix_fig,
+            roc_fig=roc_fig,
+            pr_fig=pr_fig
+        )
+        
+        status = f"✅ 使用 **{data_source}** 评估完成 | 样本数: {len(y)}\n📄 评估报告已生成: {report_path}"
+        
+        # 获取报告预览内容
+        report_preview = report_generator.get_last_evaluation_report()
+        
+        return status, metrics_df, roc_fig, pr_fig, confusion_matrix_fig, report_path, report_preview, report_preview, report_path
     
     except Exception as e:
         import traceback
         traceback.print_exc()
         empty_df = pd.DataFrame({"错误": [str(e)]})
-        return f"❌ 评估出错: {str(e)}", empty_df, None, None, None
+        return f"❌ 评估出错: {str(e)}", empty_df, None, None, None, None, "", "", None
 
 
 def toggle_params(model_type):
@@ -392,7 +566,11 @@ def toggle_params(model_type):
     return (
         gr.Accordion(visible=model_type == "Random Forest"),
         gr.Accordion(visible=model_type == "SVM"),
-        gr.Accordion(visible=model_type == "Logistic Regression")
+        gr.Accordion(visible=model_type == "Logistic Regression"),
+        gr.Accordion(visible=model_type == "XGBoost"),
+        gr.Accordion(visible=model_type == "LightGBM"),
+        gr.Accordion(visible=model_type == "KNN"),
+        gr.Accordion(visible=model_type == "Naive Bayes")
     )
 
 
