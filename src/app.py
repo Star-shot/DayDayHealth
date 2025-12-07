@@ -46,8 +46,34 @@ _global_model = None
 _global_test_data = None  # 保存测试集 (X_test, y_test)
 
 
+def get_file_columns(file):
+    """获取文件的列名，用于更新特征/标签选择下拉框"""
+    if file is None:
+        return gr.Dropdown(choices=[], value=[]), gr.Dropdown(choices=[], value=None)
+    
+    try:
+        if file.name.endswith('.csv'):
+            df = pd.read_csv(file.name, nrows=0)  # 只读取列名
+        else:
+            df = pd.read_excel(file.name, nrows=0)
+        
+        columns = df.columns.tolist()
+        
+        # 特征列：默认选择除最后一列外的所有列
+        # 标签列：默认选择最后一列
+        return (
+            gr.Dropdown(choices=columns, value=columns[:-1] if len(columns) > 1 else []),
+            gr.Dropdown(choices=columns, value=columns[-1] if columns else None)
+        )
+    except Exception as e:
+        print(f"读取列名失败: {e}")
+        return gr.Dropdown(choices=[], value=[]), gr.Dropdown(choices=[], value=None)
+
+
 def train_model(
-    file, 
+    file,
+    feature_cols,
+    label_col,
     split_method,
     test_size,
     k_folds,
@@ -63,7 +89,7 @@ def train_model(
     lr_C=1.0,
     lr_solver="lbfgs"
 ):
-    """训练模型（支持简单切分和K折交叉验证）"""
+    """训练模型（支持自定义特征列和标签列）"""
     global _global_model, _global_test_data
     from sklearn.model_selection import cross_val_score, StratifiedKFold
     import numpy as np
@@ -72,7 +98,37 @@ def train_model(
         return "请先上传训练数据！"
     
     try:
-        X, y = load_data(file.name)
+        # 加载数据
+        if file.name.endswith('.csv'):
+            df = pd.read_csv(file.name)
+        else:
+            df = pd.read_excel(file.name)
+        
+        df = df.dropna()
+        
+        # 确定标签列
+        if label_col and label_col in df.columns:
+            y = df[label_col].values
+        else:
+            y = df.iloc[:, -1].values
+            label_col = df.columns[-1]
+        
+        # 确定特征列
+        if feature_cols and len(feature_cols) > 0:
+            # 过滤掉不存在的列和标签列
+            valid_features = [c for c in feature_cols if c in df.columns and c != label_col]
+            if valid_features:
+                X = df[valid_features].values
+                feature_info = f"已选择 {len(valid_features)} 个特征"
+            else:
+                # 使用除标签外的所有列
+                X = df.drop(columns=[label_col]).values
+                feature_info = f"使用全部 {X.shape[1]} 个特征（默认）"
+        else:
+            # 使用除标签外的所有列
+            X = df.drop(columns=[label_col]).values
+            feature_info = f"使用全部 {X.shape[1]} 个特征（默认）"
+        
         random_seed = int(random_seed) if random_seed else 42
         
         # 创建模型
@@ -139,7 +195,9 @@ def train_model(
             result = f"🔄 {k}折{stratify_info}交叉验证完成！\n\n"
             if stratify_info == "普通":
                 result += f"⚠️ 部分类别样本过少（最小类别仅{min_class_count}个），已使用普通K折\n\n"
-            result += f"📊 数据: {len(X)} 样本 | 类别: {dict(class_counts)}\n\n"
+            result += f"📊 数据: {len(X)} 样本 × {X.shape[1]} 特征\n"
+            result += f"   标签列: {label_col} | {feature_info}\n"
+            result += f"   类别分布: {dict(class_counts)}\n\n"
             result += f"📊 准确率: {acc_scores.mean():.3f} ± {acc_scores.std():.3f}\n"
             result += f"   各折: {', '.join([f'{s:.3f}' for s in acc_scores])}\n\n"
             result += f"📊 召回率: {recall_scores.mean():.3f} ± {recall_scores.std():.3f}\n"
@@ -169,6 +227,8 @@ def train_model(
             _global_test_data = (X_test, y_test)  # 保存测试集用于评估
             
             result = f"✅ 简单切分训练完成！{stratify_info}\n\n"
+            result += f"📊 数据: {len(X)} 样本 × {X.shape[1]} 特征\n"
+            result += f"   标签列: {label_col} | {feature_info}\n\n"
             result += f"📊 数据切分:\n"
             result += f"   训练集: {len(X_train)} 样本 ({1-test_size:.0%})\n"
             result += f"   测试集: {len(X_test)} 样本 ({test_size:.0%})\n\n"
@@ -307,6 +367,7 @@ handlers = {
     'evaluate_model': evaluate_model,
     'toggle_params': toggle_params,
     'toggle_split_params': toggle_split_params,
+    'get_file_columns': get_file_columns,
 }
 
 # 在 Blocks 上下文中设置事件绑定

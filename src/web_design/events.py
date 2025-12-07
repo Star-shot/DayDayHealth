@@ -112,6 +112,13 @@ def setup_events(components, handlers):
     
     # ==================== 模型训练事件 ====================
     
+    # 上传训练文件时自动获取列名
+    components['train_file'].change(
+        fn=handlers['get_file_columns'],
+        inputs=components['train_file'],
+        outputs=[components['feature_cols'], components['label_col']]
+    )
+    
     # 切分方式变化时切换显示
     components['split_method'].change(
         fn=handlers['toggle_split_params'],
@@ -135,6 +142,8 @@ def setup_events(components, handlers):
         fn=handlers['train_model'],
         inputs=[
             components['train_file'],
+            components['feature_cols'],
+            components['label_col'],
             components['split_method'],
             components['test_size'],
             components['k_folds'],

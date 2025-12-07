@@ -149,6 +149,24 @@ def create_model_training_tab():
             file_types=[".csv", ".xlsx"]
         )
         
+        # 特征和标签选择
+        gr.Markdown("### 🎯 特征与标签选择")
+        with gr.Row():
+            feature_cols = gr.Dropdown(
+                label="选择特征列",
+                choices=[],
+                multiselect=True,
+                info="多选，留空则使用除标签外的所有列",
+                scale=3
+            )
+            label_col = gr.Dropdown(
+                label="选择标签列",
+                choices=[],
+                value=None,
+                info="单选，默认最后一列",
+                scale=1
+            )
+        
         # 数据切分设置
         gr.Markdown("### 📊 数据切分设置")
         with gr.Row():
@@ -230,6 +248,8 @@ def create_model_training_tab():
     
     return {
         'train_file': train_file,
+        'feature_cols': feature_cols,
+        'label_col': label_col,
         'split_method': split_method,
         'test_size': test_size,
         'k_folds': k_folds,
