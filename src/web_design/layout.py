@@ -14,7 +14,7 @@ EXAMPLE_FILES = {
 
 def create_data_processing_tab():
     """创建数据处理标签页"""
-    with gr.Tab("数据处理"):
+    with gr.Tab("📊 数据处理"):
         with gr.Row():
             example_selector = gr.Dropdown(
                 label="选择样例数据",
@@ -143,7 +143,7 @@ def create_data_processing_tab():
 
 def create_model_training_tab():
     """创建模型训练标签页"""
-    with gr.Tab("模型训练"):
+    with gr.Tab("🚀 模型训练"):
         train_file = gr.File(
             label="上传训练文件（CSV/XLSX）",
             file_types=[".csv", ".xlsx"]
@@ -274,7 +274,7 @@ def create_model_training_tab():
 
 def create_model_eval_tab():
     """创建模型评估标签页"""
-    with gr.Tab("模型评估"):
+    with gr.Tab("📈 模型评估"):
         eval_status = gr.Markdown(
             value="💡 *训练模型后将自动使用测试集评估，或上传自定义评估数据*"
         )
@@ -336,42 +336,40 @@ def create_prediction_tab():
 
 def create_chat_sidebar():
     """创建聊天侧边栏"""
-    with gr.Sidebar(position="right", open=True) as sidebar:
-        gr.Markdown("## 🤖 智能助手")
+    with gr.Sidebar(position="right", open=True, width="40%") as sidebar:
+        gr.Markdown("## 🌟StarT Chat")
         
         chatbot = gr.Chatbot(
             label="对话",
-            height=350,
+            height=400,
         )
         
         msg = gr.Textbox(
-            label="输入消息",
-            placeholder="输入问题后按回车发送...",
-            max_lines=2,
+            label="💬 输入消息",
+            placeholder="有什么可以帮助你的？按回车发送...",
+            lines=3,
+            max_lines=5,
         )
         
         img_input = gr.Image(
-            label="上传图片（可选）",
+            label="📷 上传图片（可选）",
             type="filepath",
-            height=100,
+            height=150,
         )
         
-        with gr.Row():
-            model_id = gr.Dropdown(
-                label="智能体",
-                value="健康管理",
-                choices=["疾病诊断", "健康管理", "营养指导"],
-                scale=2
-            )
+        model_id = gr.Dropdown(
+            label="🎯 选择智能体",
+            value="健康管理",
+            choices=["疾病诊断", "健康管理", "营养指导"],
+        )
         
-        provider_info = gr.Markdown(value="*qwen / qwen-max*")
+        provider_info = gr.Markdown(value="*当前模型: qwen / qwen-max*")
         
         with gr.Row():
-            send_btn = gr.Button("发送", variant="primary", size='sm')
-            clear_btn = gr.ClearButton([msg, chatbot, img_input], value="清空", size='sm')
+            send_btn = gr.Button("🚀 发送", variant="primary")
+            clear_btn = gr.ClearButton([msg, chatbot, img_input], value="🗑️ 清空")
         
-        with gr.Row():
-            download_history_btn = gr.Button("📥 导出", variant="secondary", size='sm')
+        download_history_btn = gr.Button("📥 导出对话记录", variant="secondary")
         
         chat_history_file = gr.File(label="对话记录", visible=False)
         
@@ -395,8 +393,8 @@ def create_chat_sidebar():
 
 def create_layout():
     """创建完整的 UI 布局"""
-    with gr.Blocks(title="Starshot🌟 智能医疗系统") as demo:
-        gr.Markdown("# Starshot🌟 智能医疗系统")
+    with gr.Blocks(title="Starshot🌟") as demo:
+        gr.Markdown("# Starshot🌟")
         
         # 主内容区（全宽）
         with gr.Tabs():
@@ -412,7 +410,7 @@ def create_layout():
             # 批量预测
             pred_components = create_prediction_tab()
             
-            with gr.Tab("📊 可视化"):
+            with gr.Tab("📑 可视化"):
                 gr.Markdown("*可视化功能开发中...*")
         
         # 右侧可收缩聊天侧边栏
