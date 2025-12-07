@@ -328,41 +328,52 @@ def create_prediction_tab():
     }
 
 
-def create_chat_panel():
-    """创建聊天面板"""
-    with gr.Column(scale=1):
+def create_chat_sidebar():
+    """创建聊天侧边栏"""
+    with gr.Sidebar(position="right", open=True) as sidebar:
+        gr.Markdown("## 🤖 智能助手")
+        
         chatbot = gr.Chatbot(
-            label="智能助手",
-            height=400,
+            label="对话",
+            height=350,
         )
+        
+        msg = gr.Textbox(
+            label="输入消息",
+            placeholder="输入问题后按回车发送...",
+            max_lines=2,
+        )
+        
+        img_input = gr.Image(
+            label="上传图片（可选）",
+            type="filepath",
+            height=100,
+        )
+        
         with gr.Row():
-            msg = gr.Textbox(
-                label="输入消息",
-                placeholder="输入问题后按回车发送",
-                max_lines=3,
-                scale=4
+            model_id = gr.Dropdown(
+                label="智能体",
+                value="健康管理",
+                choices=["疾病诊断", "健康管理", "营养指导"],
+                scale=2
             )
-            img_input = gr.Image(
-                label="上传图片",
-                type="filepath",
-                scale=1
-            )
-        model_id = gr.Dropdown(
-            label="医疗智能体",
-            value="健康管理",
-            choices=["疾病诊断", "健康管理", "营养指导"]
-        )
-        provider_info = gr.Markdown(value="**当前模型**: qwen / qwen-max")
+        
+        provider_info = gr.Markdown(value="*qwen / qwen-max*")
+        
         with gr.Row():
             send_btn = gr.Button("发送", variant="primary", size='sm')
-            clear_btn = gr.ClearButton([msg, chatbot, img_input], size='sm')
-            download_history_btn = gr.Button("📥 导出对话", variant="secondary", size='sm')
+            clear_btn = gr.ClearButton([msg, chatbot, img_input], value="清空", size='sm')
+        
+        with gr.Row():
+            download_history_btn = gr.Button("📥 导出", variant="secondary", size='sm')
+        
         chat_history_file = gr.File(label="对话记录", visible=False)
         
         # 用于存储图片路径
         image_cache = gr.State(None)
     
     return {
+        'sidebar': sidebar,
         'chatbot': chatbot,
         'msg': msg,
         'img_input': img_input,
@@ -378,22 +389,28 @@ def create_chat_panel():
 
 def create_layout():
     """创建完整的 UI 布局"""
-    with gr.Blocks() as demo:
-        gr.Markdown("# Starshot🌟")
+    with gr.Blocks(title="Starshot🌟 智能医疗系统") as demo:
+        gr.Markdown("# Starshot🌟 智能医疗系统")
         
-        with gr.Row():
-            # 左侧面板
-            with gr.Column(scale=2):
-                data_components = create_data_processing_tab()
-                train_components = create_model_training_tab()
-                eval_components = create_model_eval_tab()
-                pred_components = create_prediction_tab()
-                
-                with gr.Tab("可视化"):
-                    pass  # TODO
+        # 主内容区（全宽）
+        with gr.Tabs():
+            # 数据处理
+            data_components = create_data_processing_tab()
             
-            # 右侧聊天面板
-            chat_components = create_chat_panel()
+            # 模型训练
+            train_components = create_model_training_tab()
+            
+            # 模型评估
+            eval_components = create_model_eval_tab()
+            
+            # 批量预测
+            pred_components = create_prediction_tab()
+            
+            with gr.Tab("📊 可视化"):
+                gr.Markdown("*可视化功能开发中...*")
+        
+        # 右侧可收缩聊天侧边栏
+        chat_components = create_chat_sidebar()
         
         # 合并所有组件
         components = {}
